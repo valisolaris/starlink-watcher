@@ -1,0 +1,496 @@
+<title>Starlink Watch — デザイン方向性レビュー(Round 3)</title>
+<style>
+  :root{
+    --page-bg:#08080a;
+    --page-bg-2:#0f0f12;
+    --mock-bg:#000000;
+    --ink:rgba(255,255,255,.92);
+    --ink-2:rgba(255,255,255,.64);
+    --ink-3:rgba(255,255,255,.40);
+    --hairline:rgba(255,255,255,.14);
+    --frame-border:rgba(255,255,255,.16);
+    --accent-a:#e8a33d;
+    --focus:#7fc7ff;
+    --font-display:"Arial Narrow","Segoe UI",system-ui,sans-serif;
+    --font-body:"Noto Sans JP",system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:linear-gradient(180deg,var(--page-bg) 0%,var(--page-bg-2) 100%);
+    color:var(--ink);
+    font-family:var(--font-body);
+    -webkit-font-smoothing:antialiased;
+    padding:56px 20px 96px;
+  }
+
+  a{color:inherit;}
+  *:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
+
+  /* ---------- ページ全体レイアウト ---------- */
+  .page{max-width:960px;margin:0 auto;}
+
+  .intro{max-width:640px;margin:0 auto 72px;text-align:center;}
+  .intro .eyebrow{
+    font-family:var(--font-display);
+    font-weight:700;text-transform:uppercase;letter-spacing:.18em;
+    font-size:12px;color:var(--ink-3);margin-bottom:18px;
+  }
+  .intro h1{
+    font-family:var(--font-display);
+    font-weight:700;text-transform:uppercase;letter-spacing:.03em;
+    font-size:clamp(28px,4.4vw,40px);line-height:1.15;margin:0 0 20px;
+    text-wrap:balance;
+  }
+  .intro p{
+    font-size:15px;line-height:1.8;color:var(--ink-2);margin:0 0 8px;
+  }
+  .intro .axis-row{
+    display:flex;gap:24px;justify-content:center;flex-wrap:wrap;
+    margin-top:28px;font-size:13px;color:var(--ink-3);
+  }
+  .intro .axis-row b{color:var(--ink-2);font-weight:600;}
+
+  .compare-divider{
+    display:flex;align-items:center;gap:16px;
+    max-width:640px;margin:88px auto 40px;color:var(--ink-3);
+    font-family:var(--font-display);font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+  }
+  .compare-divider::before,.compare-divider::after{content:"";flex:1;height:1px;background:var(--hairline);}
+
+  .variant-block{max-width:640px;margin:0 auto 20px;}
+  .variant-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:18px;flex-wrap:wrap;}
+  .variant-name{
+    font-family:var(--font-display);font-weight:700;text-transform:uppercase;
+    letter-spacing:.04em;font-size:20px;
+  }
+  .variant-name small{
+    display:block;font-family:var(--font-body);font-weight:400;text-transform:none;
+    letter-spacing:0;font-size:13px;color:var(--ink-3);margin-top:4px;
+  }
+  .variant-tag{
+    font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);
+    border:1px solid var(--hairline);border-radius:999px;padding:5px 12px;white-space:nowrap;
+  }
+
+  .frame-wrap{display:flex;justify-content:center;margin-bottom:28px;}
+  .device-frame{
+    width:390px;max-width:100%;
+    background:var(--mock-bg);
+    border:1px solid var(--frame-border);
+    border-radius:28px;
+    padding:10px;
+    box-shadow:0 40px 80px -32px rgba(0,0,0,.7);
+  }
+  .device-screen{
+    border:1px solid var(--frame-border);
+    border-radius:20px;
+    overflow:hidden;
+    min-height:640px;
+    display:flex;flex-direction:column;
+  }
+
+  .notes{margin:0 0 8px;padding:0;list-style:none;}
+  .notes li{
+    display:flex;gap:10px;font-size:13px;line-height:1.7;color:var(--ink-2);
+    padding:10px 0;border-top:1px solid var(--hairline);
+  }
+  .notes li:last-child{border-bottom:1px solid var(--hairline);}
+  .notes li .k{flex:0 0 auto;color:var(--ink-3);font-family:var(--font-display);letter-spacing:.04em;}
+  .notes li .swatch{
+    display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;
+    vertical-align:-1px;border:1px solid var(--hairline);
+  }
+
+  .page-footer{
+    max-width:640px;margin:96px auto 0;text-align:center;
+    font-size:12px;color:var(--ink-3);line-height:1.8;
+  }
+
+  /* ============================================================
+     アプリ本体モックアップ(案A/案B 共通構造)
+     ============================================================ */
+  .app{
+    flex:1;display:flex;flex-direction:column;
+    background:var(--app-bg);color:var(--app-ink);
+    font-family:var(--font-body);
+  }
+  .app .din{font-family:var(--font-display);font-weight:700;text-transform:uppercase;}
+
+  .app-header{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:16px 18px;border-bottom:1px solid var(--app-hairline);
+  }
+  .app-header .app-name{
+    font-size:13px;letter-spacing:.14em;color:var(--app-ink);
+  }
+  .app-header .chip{
+    font-family:var(--font-body);font-size:12px;color:var(--app-ink-2);
+    background:transparent;border:1px solid var(--app-hairline);border-radius:999px;
+    padding:6px 12px;display:flex;align-items:center;gap:6px;cursor:pointer;
+  }
+  .app-header .chip:hover{border-color:var(--app-ink-3);color:var(--app-ink);}
+
+  .band{padding:22px 18px;border-bottom:1px solid var(--app-hairline);}
+  .eyebrow{
+    font-family:var(--font-display);font-size:11px;font-weight:700;
+    letter-spacing:.18em;text-transform:uppercase;color:var(--app-ink-3);margin-bottom:10px;
+  }
+
+  /* --- VERDICT バンド --- */
+  .band-verdict{padding-top:30px;padding-bottom:30px;}
+  .verdict-badge{
+    display:inline-flex;align-items:center;gap:8px;
+    font-family:var(--font-display);font-size:11px;font-weight:700;
+    letter-spacing:.1em;text-transform:uppercase;
+    padding:6px 14px;border-radius:999px;margin-bottom:14px;
+  }
+  .verdict-time{
+    font-family:var(--font-display);font-weight:700;letter-spacing:.01em;
+    font-variant-numeric:tabular-nums;line-height:.95;
+    font-size:clamp(48px,15vw,64px);margin:0 0 10px;
+  }
+  .verdict-sub{margin:0;font-size:14.5px;color:var(--app-ink-2);line-height:1.6;}
+
+  /* --- TRAIN バンド --- */
+  .band-train p{margin:0;font-size:13.5px;line-height:1.7;color:var(--app-ink-2);}
+  .band-train p b{color:var(--app-ink);font-weight:600;}
+
+  /* --- パスリスト --- */
+  .band-passlist{padding-left:0;padding-right:0;}
+  .band-passlist .eyebrow{padding:0 18px;}
+  .pass-row{
+    width:100%;display:grid;grid-template-columns:1.5fr 1fr auto auto auto;
+    gap:8px;align-items:center;
+    background:none;border:none;border-top:1px solid var(--app-hairline);
+    padding:14px 18px;font-family:var(--font-body);color:var(--app-ink);
+    font-size:12.5px;text-align:left;cursor:pointer;
+  }
+  .pass-row:hover{background:rgba(255,255,255,.03);}
+  .pass-row .pass-date{font-weight:600;font-variant-numeric:tabular-nums;}
+  .pass-row .pass-dir{color:var(--app-ink-2);}
+  .pass-row .pass-el{font-variant-numeric:tabular-nums;color:var(--app-ink-2);text-align:right;}
+  .pass-row .pass-mag{letter-spacing:1px;text-align:right;}
+  .pass-row .pass-caret{color:var(--app-ink-3);text-align:right;transition:transform .2s ease;}
+  .pass-row[aria-expanded="true"] .pass-caret{transform:rotate(90deg);}
+  .pass-row-train .pass-date::after{
+    content:"TRAIN";margin-left:8px;font-family:var(--font-display);font-size:9px;
+    font-weight:700;letter-spacing:.1em;color:var(--app-accent,var(--app-ink-2));
+    border:1px solid currentColor;border-radius:4px;padding:1px 4px;vertical-align:2px;
+  }
+
+  .skychart-wrap{
+    max-height:0;overflow:hidden;
+    transition:max-height .25s ease;
+    border-top:1px solid var(--app-hairline);
+  }
+  .skychart-wrap.is-open{max-height:340px;}
+  .skychart{padding:20px 18px 24px;display:flex;flex-direction:column;align-items:center;gap:12px;}
+  .skychart svg{width:100%;max-width:230px;height:auto;display:block;}
+  .skychart-caption{font-size:12px;color:var(--app-ink-2);text-align:center;line-height:1.6;}
+  .skychart-caption b{color:var(--app-ink);font-weight:600;}
+
+  .path-arc{
+    fill:none;stroke:var(--app-ink);stroke-width:2;stroke-linecap:round;
+    stroke-dasharray:220;stroke-dashoffset:220;
+    animation:draw-arc 1.1s ease-out .15s forwards;
+  }
+  .path-arc.accent{stroke:var(--app-accent,var(--app-ink));}
+  @keyframes draw-arc{to{stroke-dashoffset:0;}}
+  @media (prefers-reduced-motion:reduce){
+    .path-arc{animation:none;stroke-dashoffset:0;}
+  }
+
+  /* --- フッター(アプリ内) --- */
+  .app-footer{padding:18px;margin-top:auto;}
+  .dim-toggle{
+    display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--app-ink-2);
+    margin-bottom:14px;cursor:pointer;width:fit-content;
+  }
+  .dim-toggle input{accent-color:var(--app-ink);width:14px;height:14px;}
+  .app-footer .legal{font-size:11px;line-height:1.7;color:var(--app-ink-3);margin:0;}
+
+  /* ============================================================
+     案A: Mission Control — 機能色(アンバー)1色・データ濃度高め
+     ============================================================ */
+  .variant-a{
+    --app-bg:#000000;--app-ink:rgba(255,255,255,.92);
+    --app-ink-2:rgba(255,255,255,.64);--app-ink-3:rgba(255,255,255,.40);
+    --app-hairline:rgba(255,255,255,.14);--app-accent:#e8a33d;
+  }
+  .variant-a .verdict-badge{background:rgba(232,163,61,.14);color:var(--app-accent);}
+  .variant-a .verdict-time{color:var(--app-accent);}
+  .variant-a .pass-row-train .pass-mag{color:var(--app-accent);}
+  .variant-a .skychart .elev-max{fill:var(--app-accent);}
+
+  /* ============================================================
+     案B: Pure Mono — 完全黒白・余白広め・状態は「型」で符号化
+     ============================================================ */
+  .variant-b{
+    --app-bg:#000000;--app-ink:rgba(255,255,255,.92);
+    --app-ink-2:rgba(255,255,255,.64);--app-ink-3:rgba(255,255,255,.40);
+    --app-hairline:rgba(255,255,255,.14);
+  }
+  .variant-b .band{padding-top:32px;padding-bottom:32px;}
+  .variant-b .band-verdict{padding-top:44px;padding-bottom:44px;}
+  .variant-b .verdict-badge{
+    background:var(--app-ink);color:#000;font-weight:700;
+  }
+  .variant-b .verdict-badge.is-outline{
+    background:transparent;color:var(--app-ink);border:1px solid var(--app-ink);
+  }
+  .variant-b .verdict-time{font-size:clamp(56px,17vw,72px);}
+  .variant-b .pass-row-train .pass-date::after{
+    background:var(--app-ink);color:#000;border-color:var(--app-ink);
+  }
+
+  @media (max-width:460px){
+    .variant-head{flex-direction:column;align-items:flex-start;}
+  }
+</style>
+
+<div class="page">
+
+  <div class="intro">
+    <div class="eyebrow">Spec-loop · Round 3 視覚レビュー</div>
+    <h1>Starlink Watch<br>デザイン方向性 2案</h1>
+    <p>D-001(SpaceX 風 DESIGN.md の部分採用)を踏まえた翻案案です。写真ヒーローは使わず、
+      「今夜、見えるか」への即答と、衛星観測固有の計器である方位図をシグネチャに据えています。</p>
+    <div class="axis-row">
+      <span><b>共通</b> — 黒基調 / DIN系見出し / 方位図</span>
+      <span><b>違い</b> — 機能色の有無 / データ密度 / 余白</span>
+    </div>
+  </div>
+
+  <div class="compare-divider">案 A</div>
+
+  <div class="variant-block">
+    <div class="variant-head">
+      <div class="variant-name">Mission Control<small>機能色アンバー1色・データ濃度高め</small></div>
+      <div class="variant-tag">案 A</div>
+    </div>
+
+    <div class="frame-wrap">
+      <div class="device-frame">
+        <div class="device-screen">
+          <div class="app variant-a">
+            <header class="app-header">
+              <span class="app-name din">STARLINK WATCH</span>
+              <button class="chip" type="button">東京都千代田区 ▾</button>
+            </header>
+
+            <section class="band band-verdict">
+              <span class="verdict-badge">今夜、見えます</span>
+              <div class="verdict-time">21:43</div>
+              <p class="verdict-sub">南西の低い空、約4分間</p>
+            </section>
+
+            <section class="band band-train">
+              <div class="eyebrow">Train</div>
+              <p>Starlink Group 12-3 · <b>打ち上げから3日目・まだ明るく見える時期です</b></p>
+            </section>
+
+            <section class="band band-passlist">
+              <div class="eyebrow">5日分の予報</div>
+
+              <button class="pass-row" type="button" aria-expanded="true" data-target="sky-a-1">
+                <span class="pass-date">8/10(日) 21:43</span>
+                <span class="pass-dir">南西→南東</span>
+                <span class="pass-el">42°</span>
+                <span class="pass-mag">●●○</span>
+                <span class="pass-caret">›</span>
+              </button>
+              <div class="skychart-wrap is-open" id="sky-a-1">
+                <div class="skychart">
+                  <svg viewBox="0 0 200 200" role="img" aria-label="8月10日21時43分のパスの方位図。南西の地平線から昇り、真南で最大仰角42度に達し、南東へ沈む。">
+                    <circle cx="100" cy="100" r="85" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="1"/>
+                    <circle cx="100" cy="100" r="56.7" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="1"/>
+                    <circle cx="100" cy="100" r="28.3" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="1"/>
+                    <text x="100" y="10" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.4)" font-family="Arial Narrow, sans-serif">N</text>
+                    <text x="190" y="104" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.4)" font-family="Arial Narrow, sans-serif">E</text>
+                    <text x="100" y="198" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.4)" font-family="Arial Narrow, sans-serif">S</text>
+                    <text x="10" y="104" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.4)" font-family="Arial Narrow, sans-serif">W</text>
+                    <path class="path-arc" d="M 39.9 160.1 Q 100 130.5 160.1 160.1"/>
+                    <circle cx="39.9" cy="160.1" r="3" fill="rgba(255,255,255,.5)"/>
+                    <circle cx="160.1" cy="160.1" r="3" fill="rgba(255,255,255,.5)"/>
+                    <circle class="elev-max" cx="100" cy="145.3" r="4.5" fill="#e8a33d"/>
+                  </svg>
+                  <p class="skychart-caption">最大仰角 <b>42°</b>(真南)/ 21:43:20 頃 / 明るさ目安 <b>●●○</b></p>
+                </div>
+              </div>
+
+              <button class="pass-row pass-row-train" type="button" aria-expanded="false" data-target="sky-a-2">
+                <span class="pass-date">8/12(火) 20:15</span>
+                <span class="pass-dir">北西→東</span>
+                <span class="pass-el">61°</span>
+                <span class="pass-mag">●●●</span>
+                <span class="pass-caret">›</span>
+              </button>
+              <div class="skychart-wrap" id="sky-a-2">
+                <div class="skychart">
+                  <svg viewBox="0 0 200 200" role="img" aria-label="8月12日20時15分のトレインのパスの方位図。北西の地平線から昇り、北北東で最大仰角61度に達し、東へ沈む。弧の上には連なる衛星を示す点が並ぶ。">
+                    <circle cx="100" cy="100" r="85" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="1"/>
+                    <circle cx="100" cy="100" r="56.7" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="1"/>
+                    <circle cx="100" cy="100" r="28.3" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="1"/>
+                    <text x="100" y="10" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.4)" font-family="Arial Narrow, sans-serif">N</text>
+                    <text x="190" y="104" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.4)" font-family="Arial Narrow, sans-serif">E</text>
+                    <text x="100" y="198" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.4)" font-family="Arial Narrow, sans-serif">S</text>
+                    <text x="10" y="104" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.4)" font-family="Arial Narrow, sans-serif">W</text>
+                    <path class="path-arc accent" d="M 39.9 39.9 Q 108.55 79.41 185 100"/>
+                    <circle cx="39.9" cy="39.9" r="3" fill="rgba(255,255,255,.5)"/>
+                    <circle cx="185" cy="100" r="3" fill="rgba(255,255,255,.5)"/>
+                    <g fill="#e8a33d">
+                      <circle cx="60.67" cy="51.33" r="2.2"/>
+                      <circle cx="81.79" cy="61.9" r="2.2"/>
+                      <circle cx="103.26" cy="71.63" r="2.2"/>
+                      <circle cx="125.08" cy="80.5" r="2.2"/>
+                      <circle cx="147.26" cy="88.52" r="2.2"/>
+                      <circle cx="169.79" cy="95.69" r="2.2"/>
+                    </g>
+                  </svg>
+                  <p class="skychart-caption">最大仰角 <b>61°</b>(北北東)/ 20:15:40 頃 / 明るさ目安 <b>●●●</b></p>
+                </div>
+              </div>
+            </section>
+
+            <footer class="app-footer">
+              <label class="dim-toggle"><input type="checkbox"> 減光モード</label>
+              <p class="legal">本サイトは SpaceX 社および Starlink とは無関係の非公式ツールです。軌道データ: CelesTrak</p>
+            </footer>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <ul class="notes">
+      <li><span class="k">Bg / Ink</span> <span><span class="swatch" style="background:#000"></span>#000000 背景 + 白の不透明度階調(.92/.64/.40/.14)</span></li>
+      <li><span class="k">Accent</span> <span><span class="swatch" style="background:#e8a33d"></span>#e8a33d を3箇所のみに限定(verdict時刻・バッジ・方位図の最大仰角マーカー)。減光文化に接続する機能色</span></li>
+      <li><span class="k">向き</span> <span>罫線区切りのリストで密度高め。計器盤・管制室の趣</span></li>
+    </ul>
+  </div>
+
+  <div class="compare-divider">案 B</div>
+
+  <div class="variant-block">
+    <div class="variant-head">
+      <div class="variant-name">Pure Mono<small>完全黒白・余白広め・状態は「型」で符号化</small></div>
+      <div class="variant-tag">案 B</div>
+    </div>
+
+    <div class="frame-wrap">
+      <div class="device-frame">
+        <div class="device-screen">
+          <div class="app variant-b">
+            <header class="app-header">
+              <span class="app-name din">STARLINK WATCH</span>
+              <button class="chip" type="button">東京都千代田区 ▾</button>
+            </header>
+
+            <section class="band band-verdict">
+              <span class="verdict-badge">今夜、見えます</span>
+              <div class="verdict-time">21:43</div>
+              <p class="verdict-sub">南西の低い空、約4分間</p>
+            </section>
+
+            <section class="band band-train">
+              <div class="eyebrow">Train</div>
+              <p>Starlink Group 12-3 · <b>打ち上げから3日目・まだ明るく見える時期です</b></p>
+            </section>
+
+            <section class="band band-passlist">
+              <div class="eyebrow">5日分の予報</div>
+
+              <button class="pass-row" type="button" aria-expanded="true" data-target="sky-b-1">
+                <span class="pass-date">8/10(日) 21:43</span>
+                <span class="pass-dir">南西→南東</span>
+                <span class="pass-el">42°</span>
+                <span class="pass-mag">●●○</span>
+                <span class="pass-caret">›</span>
+              </button>
+              <div class="skychart-wrap is-open" id="sky-b-1">
+                <div class="skychart">
+                  <svg viewBox="0 0 200 200" role="img" aria-label="8月10日21時43分のパスの方位図。南西の地平線から昇り、真南で最大仰角42度に達し、南東へ沈む。">
+                    <circle cx="100" cy="100" r="85" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="1"/>
+                    <circle cx="100" cy="100" r="56.7" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="1"/>
+                    <circle cx="100" cy="100" r="28.3" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="1"/>
+                    <text x="100" y="10" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.4)" font-family="Arial Narrow, sans-serif">N</text>
+                    <text x="190" y="104" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.4)" font-family="Arial Narrow, sans-serif">E</text>
+                    <text x="100" y="198" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.4)" font-family="Arial Narrow, sans-serif">S</text>
+                    <text x="10" y="104" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.4)" font-family="Arial Narrow, sans-serif">W</text>
+                    <path class="path-arc" d="M 39.9 160.1 Q 100 130.5 160.1 160.1"/>
+                    <circle cx="39.9" cy="160.1" r="3" fill="rgba(255,255,255,.5)"/>
+                    <circle cx="160.1" cy="160.1" r="3" fill="rgba(255,255,255,.5)"/>
+                    <circle cx="100" cy="145.3" r="4.5" fill="rgba(255,255,255,.92)"/>
+                  </svg>
+                  <p class="skychart-caption">最大仰角 <b>42°</b>(真南)/ 21:43:20 頃 / 明るさ目安 <b>●●○</b></p>
+                </div>
+              </div>
+
+              <button class="pass-row pass-row-train" type="button" aria-expanded="false" data-target="sky-b-2">
+                <span class="pass-date">8/12(火) 20:15</span>
+                <span class="pass-dir">北西→東</span>
+                <span class="pass-el">61°</span>
+                <span class="pass-mag">●●●</span>
+                <span class="pass-caret">›</span>
+              </button>
+              <div class="skychart-wrap" id="sky-b-2">
+                <div class="skychart">
+                  <svg viewBox="0 0 200 200" role="img" aria-label="8月12日20時15分のトレインのパスの方位図。北西の地平線から昇り、北北東で最大仰角61度に達し、東へ沈む。弧の上には連なる衛星を示す点が並ぶ。">
+                    <circle cx="100" cy="100" r="85" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="1"/>
+                    <circle cx="100" cy="100" r="56.7" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="1"/>
+                    <circle cx="100" cy="100" r="28.3" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="1"/>
+                    <text x="100" y="10" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.4)" font-family="Arial Narrow, sans-serif">N</text>
+                    <text x="190" y="104" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.4)" font-family="Arial Narrow, sans-serif">E</text>
+                    <text x="100" y="198" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.4)" font-family="Arial Narrow, sans-serif">S</text>
+                    <text x="10" y="104" text-anchor="middle" font-size="10" fill="rgba(255,255,255,.4)" font-family="Arial Narrow, sans-serif">W</text>
+                    <path class="path-arc" d="M 39.9 39.9 Q 108.55 79.41 185 100"/>
+                    <circle cx="39.9" cy="39.9" r="3" fill="rgba(255,255,255,.5)"/>
+                    <circle cx="185" cy="100" r="3" fill="rgba(255,255,255,.5)"/>
+                    <g fill="rgba(255,255,255,.92)">
+                      <circle cx="60.67" cy="51.33" r="2.2"/>
+                      <circle cx="81.79" cy="61.9" r="2.2"/>
+                      <circle cx="103.26" cy="71.63" r="2.2"/>
+                      <circle cx="125.08" cy="80.5" r="2.2"/>
+                      <circle cx="147.26" cy="88.52" r="2.2"/>
+                      <circle cx="169.79" cy="95.69" r="2.2"/>
+                    </g>
+                  </svg>
+                  <p class="skychart-caption">最大仰角 <b>61°</b>(北北東)/ 20:15:40 頃 / 明るさ目安 <b>●●●</b></p>
+                </div>
+              </div>
+            </section>
+
+            <footer class="app-footer">
+              <label class="dim-toggle"><input type="checkbox"> 減光モード</label>
+              <p class="legal">本サイトは SpaceX 社および Starlink とは無関係の非公式ツールです。軌道データ: CelesTrak</p>
+            </footer>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <ul class="notes">
+      <li><span class="k">Bg / Ink</span> <span><span class="swatch" style="background:#000"></span>#000000 背景 + 白の不透明度階調のみ。色は一切使わない</span></li>
+      <li><span class="k">状態表現</span> <span>色でなく「型」で符号化 — 見える = 塗りバッジ(白地黒字)+大ウェイト、見えない = アウトラインバッジ+通常ウェイト</span></li>
+      <li><span class="k">余白</span> <span>案Aの約1.5倍。verdictの型をさらに大きく、写真なしで余白と型だけでLP的な呼吸を再現</span></li>
+    </ul>
+  </div>
+
+  <p class="page-footer">
+    docs/spec/20260810-starlink-visibility/design-brief.md の構成案に基づくモックアップです。<br>
+    フォントは本番の D-DIN(ライセンス確認中)を Arial Narrow で近似しています。実データではありません。
+  </p>
+
+</div>
+
+<script>
+  document.querySelectorAll(".pass-row").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var expanded = btn.getAttribute("aria-expanded") === "true";
+      btn.setAttribute("aria-expanded", String(!expanded));
+      var target = document.getElementById(btn.dataset.target);
+      if (target) target.classList.toggle("is-open", !expanded);
+    });
+  });
+</script>

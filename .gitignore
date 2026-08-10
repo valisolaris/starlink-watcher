@@ -1,0 +1,5 @@
+thinking-dashboard/
+node_modules/
+dist/
+.playwright-mcp/
+.claude/scheduled_tasks.lock
