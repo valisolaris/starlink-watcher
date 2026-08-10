@@ -11,6 +11,19 @@ import {
   type GeocodeResult,
   type ObserverLocation,
 } from "./location.ts";
+import { getGpData } from "./gp.ts";
+import {
+  computeForecast,
+  deriveVerdict,
+  forecastCacheKey,
+  loadForecastCache,
+  saveForecastCache,
+} from "./passes.ts";
+import {
+  renderForecast,
+  renderForecastError,
+  renderForecastLoading,
+} from "./forecast-ui.ts";
 
 export const UI_STRINGS = {
   appName: "STARLINK WATCH",
@@ -33,8 +46,6 @@ export const UI_STRINGS = {
   latOutOfRange: "緯度は -90〜90 の範囲で入力してください。",
   lonOutOfRange: "経度は -180〜180 の範囲で入力してください。",
   currentLocationLabel: "現在地",
-  forecastEyebrow: "5日分の予報",
-  forecastPlaceholder: "予報の計算機能は次の更新で追加されます。地点は保存済みです。",
   saveFailed:
     "ブラウザに保存できませんでした(ストレージが無効の可能性)。この地点は再読み込みまで有効です。",
   dimToggle: "減光モード",
@@ -63,8 +74,7 @@ export function mount(root: HTMLElement): void {
     <main>
       <section class="band" data-main-band>
         <p class="empty-copy" data-empty-copy>${UI_STRINGS.emptyCopy}</p>
-        <div class="eyebrow" data-forecast-eyebrow hidden>${UI_STRINGS.forecastEyebrow}</div>
-        <p class="placeholder-copy" data-forecast-placeholder hidden>${UI_STRINGS.forecastPlaceholder}</p>
+        <div class="forecast" data-forecast hidden></div>
       </section>
       <section class="band" data-loc-band>
         <div class="loc-panel">
@@ -108,8 +118,7 @@ export function mount(root: HTMLElement): void {
   const chip = el<HTMLButtonElement>(root, "[data-chip]");
   const locBand = el<HTMLElement>(root, "[data-loc-band]");
   const emptyCopy = el<HTMLElement>(root, "[data-empty-copy]");
-  const forecastEyebrow = el<HTMLElement>(root, "[data-forecast-eyebrow]");
-  const forecastPlaceholder = el<HTMLElement>(root, "[data-forecast-placeholder]");
+  const forecastEl = el<HTMLElement>(root, "[data-forecast]");
   const geolocateBtn = el<HTMLButtonElement>(root, "[data-geolocate]");
   const geoStatus = el<HTMLElement>(root, "[data-geo-status]");
   const searchForm = el<HTMLFormElement>(root, "[data-search-form]");
@@ -133,15 +142,57 @@ export function mount(root: HTMLElement): void {
     if (loc) {
       chip.textContent = `${loc.label} ▾`;
       emptyCopy.hidden = true;
-      forecastEyebrow.hidden = false;
-      forecastPlaceholder.hidden = false;
+      forecastEl.hidden = false;
       setPanelOpen(false);
     } else {
       chip.textContent = `${UI_STRINGS.chipUnset} ▾`;
       emptyCopy.hidden = false;
-      forecastEyebrow.hidden = true;
-      forecastPlaceholder.hidden = true;
+      forecastEl.hidden = true;
       setPanelOpen(true);
+    }
+  }
+
+  // 予報フロー: 取得(2時間キャッシュ)→計算(チャンク+進捗)→描画。
+  // 地点変更・再試行の競合は世代番号で最新だけを反映する(searchSeq と同じパターン)。
+  let forecastSeq = 0;
+
+  async function refreshForecast(loc: ObserverLocation): Promise<void> {
+    const seq = ++forecastSeq;
+    renderForecastLoading(forecastEl, "fetch");
+    try {
+      const gp = await getGpData();
+      if (seq !== forecastSeq) return;
+      const obs = { lat: loc.lat, lon: loc.lon };
+      const key = forecastCacheKey(obs, gp.snapshot.fetchedAt);
+      let nights = loadForecastCache(key);
+      // キャッシュされた予報でも、今夜の窓が終わっていたら作り直す
+      if (nights && nights[0] && nights[0].window.end.getTime() <= Date.now()) {
+        nights = null;
+      }
+      if (!nights) {
+        renderForecastLoading(forecastEl, "compute", 0);
+        nights = await computeForecast(
+          gp.snapshot.records,
+          obs,
+          new Date(),
+          (done, total) => {
+            if (seq === forecastSeq && total > 0) {
+              renderForecastLoading(forecastEl, "compute", (done / total) * 100);
+            }
+          },
+        );
+        if (seq !== forecastSeq) return;
+        saveForecastCache(key, nights);
+      }
+      const verdict = deriveVerdict(nights, new Date());
+      renderForecast(forecastEl, nights, verdict, {
+        stale: gp.source === "stale-cache",
+      });
+    } catch {
+      if (seq !== forecastSeq) return;
+      renderForecastError(forecastEl, () => {
+        void refreshForecast(loc);
+      });
     }
   }
 
@@ -153,6 +204,7 @@ export function mount(root: HTMLElement): void {
     manualStatus.textContent = "";
     searchResults.innerHTML = "";
     render();
+    void refreshForecast(loc);
     if (!persisted) {
       // 保存失敗はセッション内動作を止めず、事実だけ伝える(codex指摘: 書き込み失敗の可視化)
       manualStatus.classList.add("is-error");
@@ -266,4 +318,5 @@ export function mount(root: HTMLElement): void {
   });
 
   render();
+  if (current) void refreshForecast(current);
 }

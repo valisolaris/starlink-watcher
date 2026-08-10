@@ -14,5 +14,9 @@
     "typescript": "^7.0.2",
     "vite": "^8.2.1",
     "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "satellite.js": "^7.1.0",
+    "suncalc": "^2.0.1"
   }
 }
