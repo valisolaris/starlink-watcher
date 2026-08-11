@@ -2,7 +2,7 @@
 // Test names are ASCII-safe wording to avoid cp932 console issues on Windows.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveLocation } from "./location.ts";
-import { mount } from "./ui.ts";
+import { mount, UI_STRINGS } from "./ui.ts";
 
 function setReducedMotion(reduce: boolean): void {
   vi.stubGlobal(
@@ -96,5 +96,87 @@ describe("location panel auto-scroll", () => {
     lonInput.value = "139.75";
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     expect(scrollSpy).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+  });
+});
+
+// iOS Safariは、テキスト入力にフォーカス(キーボード表示)が残ったまま別要素をタップすると、
+// 1回目のタップはキーボードを閉じるだけでclickが素通りしないことがある。検索実行時に検索欄を
+// blur()しておくことで、結果ボタンへの最初のタップが確実に反応するようにする。
+describe("search input blur on submit (iOS Safari tap fix)", () => {
+  it("blurs the search input as soon as a search is submitted", () => {
+    mount(root);
+    const searchInput = root.querySelector<HTMLInputElement>('[name="q"]')!;
+    const searchForm = root.querySelector<HTMLFormElement>("[data-search-form]")!;
+    searchInput.value = "千代田区";
+    searchInput.focus();
+    expect(document.activeElement).toBe(searchInput);
+    searchForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    expect(document.activeElement).not.toBe(searchInput);
+  });
+
+  it("does not blur and does not call searchPlace when the query is empty", () => {
+    mount(root);
+    const searchInput = root.querySelector<HTMLInputElement>('[name="q"]')!;
+    const searchForm = root.querySelector<HTMLFormElement>("[data-search-form]")!;
+    searchInput.value = "";
+    searchInput.focus();
+    searchForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(searchInput);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("current-location error messaging by GeolocationPositionError.code", () => {
+  function stubGeolocation(errorArg: unknown): void {
+    Object.defineProperty(globalThis.navigator, "geolocation", {
+      value: {
+        getCurrentPosition: (
+          _ok: PositionCallback,
+          err?: PositionErrorCallback,
+        ) => err?.(errorArg as GeolocationPositionError),
+      },
+      configurable: true,
+    });
+  }
+
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis.navigator, "geolocation");
+  });
+
+  it("shows the Safari location-settings hint when permission is denied (code 1)", async () => {
+    stubGeolocation({ code: 1, message: "denied" });
+    mount(root);
+    root.querySelector<HTMLButtonElement>("[data-geolocate]")!.click();
+    await vi.waitFor(() => {
+      expect(root.querySelector("[data-geo-status]")!.textContent).toBe(
+        UI_STRINGS.geolocationPermissionDenied,
+      );
+    });
+  });
+
+  // 退行ガード: 権限拒否以外(POSITION_UNAVAILABLE)は従来どおり汎用メッセージのまま。
+  it("keeps the existing generic message for non-permission errors (code 2)", async () => {
+    stubGeolocation({ code: 2, message: "unavailable" });
+    mount(root);
+    root.querySelector<HTMLButtonElement>("[data-geolocate]")!.click();
+    await vi.waitFor(() => {
+      expect(root.querySelector("[data-geo-status]")!.textContent).toBe(
+        UI_STRINGS.geolocationDenied,
+      );
+    });
+  });
+
+  // getCurrentPosition()はAPI自体が無い環境ではcodeプロパティを持たないError
+  // (location.ts: new Error("geolocation unavailable"))でrejectする。この経路でも
+  // 汎用メッセージへ安全にフォールバックすることを確認する。
+  it("keeps the existing generic message when the geolocation API itself is unavailable", async () => {
+    Reflect.deleteProperty(globalThis.navigator, "geolocation");
+    mount(root);
+    root.querySelector<HTMLButtonElement>("[data-geolocate]")!.click();
+    await vi.waitFor(() => {
+      expect(root.querySelector("[data-geo-status]")!.textContent).toBe(
+        UI_STRINGS.geolocationDenied,
+      );
+    });
   });
 });

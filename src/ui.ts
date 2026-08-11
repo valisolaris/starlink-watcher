@@ -46,6 +46,9 @@ export const UI_STRINGS = {
   searching: "検索中…",
   locating: "現在地を取得中…",
   geolocationDenied: "位置情報を取得できませんでした。地名検索か、緯度経度の入力をお使いください。",
+  geolocationPermissionDenied:
+    "位置情報の利用が許可されていません。ブラウザの位置情報設定を確認し、許可してから再度お試しください" +
+    "(Safariの場合: アドレスバー左端の「aA」→「Webサイトの設定」→「位置情報」を「許可」)。",
   latLabel: "緯度 (-90〜90)",
   lonLabel: "経度 (-180〜180)",
   saveButton: "保存",
@@ -129,6 +132,7 @@ export function mount(root: HTMLElement): void {
   const geolocateBtn = el<HTMLButtonElement>(root, "[data-geolocate]");
   const geoStatus = el<HTMLElement>(root, "[data-geo-status]");
   const searchForm = el<HTMLFormElement>(root, "[data-search-form]");
+  const searchInput = el<HTMLInputElement>(root, '[name="q"]');
   const searchStatus = el<HTMLElement>(root, "[data-search-status]");
   const searchResults = el<HTMLUListElement>(root, "[data-search-results]");
   const manualForm = el<HTMLFormElement>(root, "[data-manual-form]");
@@ -262,10 +266,15 @@ export function mount(root: HTMLElement): void {
         label: `${UI_STRINGS.currentLocationLabel} (${formatCoords(pos.lat, pos.lon)})`,
         source: "geolocation",
       });
-    } catch {
-      // 拒否・失敗時は無反応にせず、手入力へ誘導する(S1 完了条件)
+    } catch (err) {
+      // 拒否・失敗時は無反応にせず、手入力へ誘導する(S1 完了条件)。
+      // PERMISSION_DENIED(code 1)は、iOS SafariでSafari内のサイト別「位置情報」設定が
+      // 過去に「許可しない」で固定されたまま(端末全体の設定をONにしても解除されない)
+      // ケースが典型的なため、対処手順を具体的に案内する専用メッセージを出す。
+      const code = (err as { code?: number } | null)?.code;
       geoStatus.classList.add("is-error");
-      geoStatus.textContent = UI_STRINGS.geolocationDenied;
+      geoStatus.textContent =
+        code === 1 ? UI_STRINGS.geolocationPermissionDenied : UI_STRINGS.geolocationDenied;
       latInput.focus();
     } finally {
       geolocateBtn.disabled = false;
@@ -279,6 +288,9 @@ export function mount(root: HTMLElement): void {
     e.preventDefault();
     const query = new FormData(searchForm).get("q");
     if (typeof query !== "string" || query.trim() === "") return;
+    // iOS Safari対策: フォーカス(キーボード表示)が残ったまま結果ボタンをタップすると、
+    // 1回目のタップがキーボードを閉じるだけで空振りすることがあるため、検索開始時に閉じておく
+    searchInput.blur();
     const seq = ++searchSeq;
     searchStatus.classList.remove("is-error");
     searchStatus.textContent = UI_STRINGS.searching;
