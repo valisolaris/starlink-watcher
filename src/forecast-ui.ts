@@ -4,6 +4,13 @@
 // 描画するテキストはすべて内部生成(衛星名等の外部文字列は出力しない)ため innerHTML を使う。
 import { azimuthToCompass8, type Brightness } from "./astro.ts";
 import type { NightForecast, Verdict, VisiblePass } from "./passes.ts";
+import {
+  SKY_HORIZON_R,
+  azElToPoint,
+  elevationRingRadius,
+  passArcPath,
+  svgRound,
+} from "./sky-map.ts";
 
 export const FORECAST_STRINGS = {
   loadingFetch: "軌道データを取得中…",
@@ -130,14 +137,73 @@ function verdictHtml(verdict: Verdict): string {
     </div>`;
 }
 
-function passRowHtml(p: VisiblePass): string {
+/** 方位図 SVG(S3)。早見盤流儀(北上・東左)。リング・ラベル位置は review.html 準拠(E/W のみ入替)。
+ * 端点は可視区間の実仰角(仰角下限・影トリムにより地平線0°ではない。codex重大対応) */
+function skyChartHtml(p: VisiblePass): string {
+  const start = { azDeg: p.startAzDeg, elDeg: p.startElDeg };
+  const max = { azDeg: p.maxAzDeg, elDeg: p.maxElevationDeg };
+  const end = { azDeg: p.endAzDeg, elDeg: p.endElDeg };
+  const ps = azElToPoint(start.azDeg, start.elDeg);
+  const pm = azElToPoint(max.azDeg, max.elDeg);
+  const pe = azElToPoint(end.azDeg, end.elDeg);
+  const r30 = svgRound(elevationRingRadius(30));
+  const r60 = svgRound(elevationRingRadius(60));
+  const label = `${azimuthToCompass8(p.startAzDeg)}の空に現れ、${azimuthToCompass8(p.maxAzDeg)}で最大仰角${Math.round(p.maxElevationDeg)}度に達し、${azimuthToCompass8(p.endAzDeg)}の空で見えなくなる。北が上、東が左の見上げ図。`;
   return `
-    <div class="pass-row">
+    <div class="skychart">
+      <svg viewBox="0 0 200 200" role="img" aria-label="${label}">
+        <circle class="sky-ring" cx="100" cy="100" r="${SKY_HORIZON_R}"/>
+        <circle class="sky-ring sky-ring-inner" cx="100" cy="100" r="${r30}"/>
+        <circle class="sky-ring sky-ring-inner" cx="100" cy="100" r="${r60}"/>
+        <text class="sky-label" x="100" y="10" text-anchor="middle">N</text>
+        <text class="sky-label" x="10" y="104" text-anchor="middle">E</text>
+        <text class="sky-label" x="100" y="198" text-anchor="middle">S</text>
+        <text class="sky-label" x="190" y="104" text-anchor="middle">W</text>
+        <path class="sky-arc" d="${passArcPath(start, max, end)}" pathLength="1"/>
+        <circle class="sky-endpoint" cx="${svgRound(ps.x)}" cy="${svgRound(ps.y)}" r="3"/>
+        <circle class="sky-endpoint" cx="${svgRound(pe.x)}" cy="${svgRound(pe.y)}" r="3"/>
+        <circle class="sky-elev-max" cx="${svgRound(pm.x)}" cy="${svgRound(pm.y)}" r="4.5"/>
+      </svg>
+      <p class="skychart-caption">最大仰角 <b>${Math.round(p.maxElevationDeg)}°</b>(${azimuthToCompass8(p.maxAzDeg)})/ ${formatJstTime(p.maxTime)} 頃 / 明るさ目安 <b>${brightnessDots(p.brightness)}</b></p>
+    </div>`;
+}
+
+function passRowHtml(p: VisiblePass, chartId: string): string {
+  return `
+    <button class="pass-row" type="button" data-pass-toggle aria-expanded="false" aria-controls="${chartId}">
       <span class="pass-time din">${formatJstTime(p.maxTime)}</span>
       <span class="pass-dir">${azimuthToCompass8(p.startAzDeg)}→${azimuthToCompass8(p.endAzDeg)}</span>
       <span class="pass-el din">${Math.round(p.maxElevationDeg)}°</span>
       <span class="pass-dots" aria-label="明るさの目安 ${p.brightness}/3">${brightnessDots(p.brightness)}</span>
-    </div>`;
+      <span class="pass-caret" aria-hidden="true">›</span>
+    </button>
+    <div class="skychart-wrap" id="${chartId}" hidden>${skyChartHtml(p)}</div>`;
+}
+
+/** 行タップで方位図を開閉。弧の描画アニメは初回展開のみ(hidden 切替で CSS アニメが
+ * 再生し直されるため、初回以降はクラスを外して再生を防ぐ) */
+function bindSkyChartToggles(container: HTMLElement): void {
+  for (const btn of container.querySelectorAll<HTMLButtonElement>(
+    "[data-pass-toggle]",
+  )) {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("aria-controls");
+      const wrap =
+        id === null ? null : container.querySelector<HTMLElement>(`#${id}`);
+      if (!wrap) return;
+      const opening = wrap.hidden;
+      wrap.hidden = !opening;
+      btn.setAttribute("aria-expanded", String(opening));
+      const arc = wrap.querySelector<SVGPathElement>(".sky-arc");
+      if (!arc) return;
+      if (opening && wrap.dataset.animated === undefined) {
+        wrap.dataset.animated = "1";
+        arc.classList.add("sky-arc-draw");
+      } else {
+        arc.classList.remove("sky-arc-draw");
+      }
+    });
+  }
 }
 
 export function renderForecast(
@@ -150,11 +216,13 @@ export function renderForecast(
     ? `<p class="stale-note">${FORECAST_STRINGS.staleNote}</p>`
     : "";
   const nightsHtml = nights
-    .map((night) => {
+    .map((night, ni) => {
       const rows =
         night.passes.length === 0
           ? `<p class="empty-night">${FORECAST_STRINGS.emptyNight}</p>`
-          : night.passes.map(passRowHtml).join("");
+          : night.passes
+              .map((p, pi) => passRowHtml(p, `sky-${ni}-${pi}`))
+              .join("");
       return `
         <section class="night-group">
           <h3 class="night-date din">${formatJstDate(night.date)}</h3>
@@ -169,4 +237,5 @@ export function renderForecast(
       <div class="eyebrow">${FORECAST_STRINGS.forecastEyebrow}</div>
       ${nightsHtml}
     </div>`;
+  bindSkyChartToggles(container);
 }

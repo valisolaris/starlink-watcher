@@ -43,6 +43,9 @@ export interface VisiblePass {
   startAzDeg: number;
   maxAzDeg: number;
   endAzDeg: number;
+  /** 可視区間端点の仰角(deg)。仰角下限や影トリムにより 0 ではない(方位図の端点描画に使う) */
+  startElDeg: number;
+  endElDeg: number;
   maxElevationDeg: number;
   rangeAtMaxKm: number;
   magnitude: number;
@@ -76,7 +79,8 @@ export const FORECAST_NIGHTS = 5;
 export const VERDICT_MIN_BRIGHTNESS: Brightness = 2;
 
 // v2: 明るさ較正(MAG_TWO_DOTS_MAX 4.8→4.5)で保存データの意味が変わったため版上げ
-export const FORECAST_STORAGE_KEY = "starlink-watcher:forecast:v2";
+// v3: 可視区間端点の仰角(startElDeg/endElDeg)を追加(S3 codex重大対応)したため版上げ
+export const FORECAST_STORAGE_KEY = "starlink-watcher:forecast:v3";
 
 /** 太陽高度が threshold を跨ぐ時刻を二分法で約15秒精度まで詰める */
 function refineSunCrossing(
@@ -196,6 +200,9 @@ export interface GeometricPass {
   startAzDeg: number;
   maxAzDeg: number;
   endAzDeg: number;
+  /** 区間端点の仰角(deg)。run の最初/最後のサンプル値 */
+  startElDeg: number;
+  endElDeg: number;
   maxElevationDeg: number;
   rangeAtMaxKm: number;
 }
@@ -354,6 +361,8 @@ function samplesToPass(
     startAzDeg: first.azDeg,
     maxAzDeg: max.azDeg,
     endAzDeg: last.azDeg,
+    startElDeg: first.elDeg,
+    endElDeg: last.elDeg,
     maxElevationDeg: max.elDeg,
     rangeAtMaxKm: max.rangeKm,
   };
@@ -548,6 +557,8 @@ function revivePass(raw: unknown): VisiblePass | null {
     v.startAzDeg,
     v.maxAzDeg,
     v.endAzDeg,
+    v.startElDeg,
+    v.endElDeg,
     v.maxElevationDeg,
     v.rangeAtMaxKm,
     v.magnitude,
@@ -564,6 +575,8 @@ function revivePass(raw: unknown): VisiblePass | null {
     startAzDeg: v.startAzDeg as number,
     maxAzDeg: v.maxAzDeg as number,
     endAzDeg: v.endAzDeg as number,
+    startElDeg: v.startElDeg as number,
+    endElDeg: v.endElDeg as number,
     maxElevationDeg: v.maxElevationDeg as number,
     rangeAtMaxKm: v.rangeAtMaxKm as number,
     magnitude: v.magnitude as number,

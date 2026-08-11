@@ -4,6 +4,7 @@ import { degreesLat, degreesLong, eciToGeodetic, gstime, propagate } from "satel
 import type { Brightness } from "./astro.ts";
 import { gpToSatrec, type GpRecord } from "./gp.ts";
 import {
+  FORECAST_STORAGE_KEY,
   computeForecast,
   darkScanSegments,
   deriveVerdict,
@@ -50,6 +51,8 @@ function mkPass(over: Partial<VisiblePass> = {}): VisiblePass {
     startAzDeg: 225,
     maxAzDeg: 180,
     endAzDeg: 135,
+    startElDeg: 12,
+    endElDeg: 11,
     maxElevationDeg: 42.4,
     rangeAtMaxKm: 700,
     magnitude: 4.0,
@@ -243,6 +246,21 @@ describe("splitVisibleRuns", () => {
     expect(runs[1].maxElevationDeg).toBe(40);
   });
 
+  // S3 codex重大対応: 方位図の端点は可視区間の実仰角(地平線0°ではない)
+  it("carries the first/last sample elevations as start/end elevations", () => {
+    const samples = mkSamples([
+      [15, true],
+      [30, true],
+      [45, true],
+      [30, false],
+      [15, false],
+    ]);
+    const runs = splitVisibleRuns(samples, 10);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].startElDeg).toBe(15);
+    expect(runs[0].endElDeg).toBe(45);
+  });
+
   it("drops samples below the elevation floor and fully shadowed passes", () => {
     const lowOnly = mkSamples([
       [5, true],
@@ -406,6 +424,20 @@ describe("forecast cache", () => {
     saveForecastCache(forecastCacheKey(TOKYO, 1), nights);
     expect(loadForecastCache(forecastCacheKey(TOKYO, 2))).toBeNull();
     expect(loadForecastCache(forecastCacheKey({ lat: 34, lon: 135 }, 1))).toBeNull();
+  });
+
+  // S3 codex重大対応: 端点仰角の追加はスキーマ変更なので版上げし、旧形式を拾わない
+  it("uses a v3 storage key and rejects passes without endpoint elevations", () => {
+    expect(FORECAST_STORAGE_KEY).toBe("starlink-watcher:forecast:v3");
+    const nights = [mkNight(Date.UTC(2026, 7, 10, 10, 30), Date.UTC(2026, 7, 10, 19, 30), [mkPass()])];
+    const key = forecastCacheKey(TOKYO, 42);
+    saveForecastCache(key, nights);
+    // 保存済み JSON から v2 相当(端点仰角なし)のパスを作って書き戻す
+    const raw = JSON.parse(localStorage.getItem(FORECAST_STORAGE_KEY)!);
+    delete raw.nights[0].passes[0].startElDeg;
+    delete raw.nights[0].passes[0].endElDeg;
+    localStorage.setItem(FORECAST_STORAGE_KEY, JSON.stringify(raw));
+    expect(loadForecastCache(key)).toBeNull();
   });
 });
 

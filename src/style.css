@@ -290,14 +290,29 @@ html.dim body { filter: brightness(0.55); }
   color: var(--ink-2); /* 小文字はAAのためink-2 */
 }
 .pass-row {
+  /* S3: div→button 化に伴うリセット(grid レイアウトは従来どおり) */
+  width: 100%;
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: auto 1fr auto auto auto;
   gap: 14px;
   align-items: baseline;
   padding: 9px 0;
   border-top: 1px solid var(--hairline);
 }
 .night-group .pass-row:first-of-type { border-top: none; }
+.pass-row:hover { background: rgba(255, 255, 255, 0.03); }
+.pass-caret {
+  font-size: 14px;
+  color: var(--ink-3); /* 装飾(aria-hidden)のため AA 対象外 */
+  transition: transform 0.2s ease;
+}
+.pass-row[aria-expanded="true"] .pass-caret { transform: rotate(90deg); }
 .pass-time { font-size: 16px; font-variant-numeric: tabular-nums; }
 .pass-dir { font-size: 13px; color: var(--ink-2); }
 .pass-el { font-size: 14px; font-variant-numeric: tabular-nums; }
@@ -306,6 +321,56 @@ html.dim body { filter: brightness(0.55); }
   margin: 6px 0;
   font-size: 12.5px;
   color: var(--ink-2); /* 小文字はAAのためink-2 */
+}
+
+/* ---------- 方位図(S3): 極座標スカイチャート(review.html 準拠、E/W は早見盤流儀) ---------- */
+.skychart-wrap { border-top: 1px solid var(--hairline); }
+.skychart {
+  padding: 20px 18px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.skychart svg {
+  width: 100%;
+  max-width: 230px;
+  height: auto;
+  display: block;
+}
+.sky-ring { fill: none; stroke: rgba(255, 255, 255, 0.14); stroke-width: 1; }
+.sky-ring-inner { stroke: rgba(255, 255, 255, 0.10); }
+.sky-label {
+  fill: var(--ink-2); /* 小文字はAAのためink-2(UI監査Q3、S1の格上げ前例と同型) */
+  font-size: 10px;
+  font-family: var(--font-display);
+}
+.sky-arc {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.sky-endpoint { fill: rgba(255, 255, 255, 0.5); }
+.sky-elev-max { fill: var(--accent); } /* accent 用途(3/3): 方位図の最大仰角マーカー */
+.skychart-caption {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+  color: var(--ink-2); /* 小文字はAAのためink-2 */
+  font-variant-numeric: tabular-nums;
+}
+.skychart-caption b { color: var(--ink); font-weight: 600; }
+
+/* 初回展開時のみの描画アニメ(pathLength="1" 前提。reduced-motion はグローバル規則で実質無効) */
+.sky-arc-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: sky-arc-draw 1.1s ease-out 0.15s forwards;
+}
+@keyframes sky-arc-draw {
+  to { stroke-dashoffset: 0; }
 }
 
 /* ローディング・進捗(fetch 中表示は S2 完了条件) */

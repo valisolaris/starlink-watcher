@@ -3,6 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Brightness } from "./astro.ts";
 import type { NightForecast, VisiblePass } from "./passes.ts";
+import { azElToPoint } from "./sky-map.ts";
 import {
   FORECAST_STRINGS,
   brightnessDots,
@@ -28,6 +29,8 @@ function mkPass(over: Partial<VisiblePass> = {}): VisiblePass {
     startAzDeg: 225,
     maxAzDeg: 180,
     endAzDeg: 135,
+    startElDeg: 10,
+    endElDeg: 10,
     maxElevationDeg: 42.4,
     rangeAtMaxKm: 700,
     magnitude: 4.0,
@@ -159,5 +162,119 @@ describe("renderForecast", () => {
   it("shows the stale-data note when requested", () => {
     renderForecast(container, [mkNight(day0, [])], { kind: "none" }, { stale: true });
     expect(container.textContent).toContain(FORECAST_STRINGS.staleNote);
+  });
+});
+
+// S3: 方位図アコーディオン。mkPass の既定パス(南西→南→南東、最大仰角42.4°)を使う。
+describe("sky chart accordion (S3)", () => {
+  const day0 = Date.UTC(2026, 7, 10);
+
+  function renderOnePass(): void {
+    renderForecast(container, [mkNight(day0, [mkPass()])], { kind: "none" });
+  }
+
+  it("renders each pass row as a button with a hidden chart", () => {
+    renderOnePass();
+    const btn = container.querySelector<HTMLButtonElement>("button.pass-row");
+    expect(btn).not.toBeNull();
+    expect(btn!.getAttribute("aria-expanded")).toBe("false");
+    const wrap = container.querySelector<HTMLElement>(".skychart-wrap");
+    expect(wrap).not.toBeNull();
+    expect(wrap!.hidden).toBe(true);
+  });
+
+  it("expands on click and collapses on second click", () => {
+    renderOnePass();
+    const btn = container.querySelector<HTMLButtonElement>("button.pass-row")!;
+    const wrap = container.querySelector<HTMLElement>(".skychart-wrap")!;
+    btn.click();
+    expect(wrap.hidden).toBe(false);
+    expect(btn.getAttribute("aria-expanded")).toBe("true");
+    btn.click();
+    expect(wrap.hidden).toBe(true);
+    expect(btn.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("draws compass labels with East on the LEFT and West on the RIGHT", () => {
+    renderOnePass();
+    const texts = Array.from(
+      container.querySelectorAll<SVGTextElement>(".skychart svg text"),
+    );
+    const byLabel = (s: string): SVGTextElement => {
+      const found = texts.find((t) => t.textContent === s);
+      expect(found, `missing compass label ${s}`).toBeDefined();
+      return found!;
+    };
+    expect(Number(byLabel("N").getAttribute("y"))).toBeLessThan(100);
+    expect(Number(byLabel("S").getAttribute("y"))).toBeGreaterThan(100);
+    expect(Number(byLabel("E").getAttribute("x"))).toBeLessThan(100);
+    expect(Number(byLabel("W").getAttribute("x"))).toBeGreaterThan(100);
+  });
+
+  it("renders exactly one accent max-elevation marker per chart", () => {
+    renderOnePass();
+    expect(container.querySelectorAll(".sky-elev-max")).toHaveLength(1);
+    expect(container.querySelectorAll(".sky-endpoint")).toHaveLength(2);
+  });
+
+  it("shows a caption with max elevation, time and brightness", () => {
+    renderOnePass();
+    const cap = container.querySelector(".skychart-caption");
+    expect(cap).not.toBeNull();
+    expect(cap!.textContent).toContain("最大仰角");
+    expect(cap!.textContent).toContain("42°");
+    expect(cap!.textContent).toContain("●●○");
+  });
+
+  it("plays the draw animation only on the first expand", () => {
+    renderOnePass();
+    const btn = container.querySelector<HTMLButtonElement>("button.pass-row")!;
+    const arc = (): Element => container.querySelector(".sky-arc")!;
+    btn.click();
+    expect(arc().classList.contains("sky-arc-draw")).toBe(true);
+    btn.click(); // close
+    btn.click(); // reopen
+    expect(arc().classList.contains("sky-arc-draw")).toBe(false);
+  });
+
+  // S3 codex重大対応: 端点は可視区間の実仰角のリング位置(地平線0°固定は不正確)
+  it("places arc endpoints at the pass start/end elevations, not the horizon", () => {
+    const pass = mkPass({ startElDeg: 12, endElDeg: 30 });
+    renderForecast(container, [mkNight(day0, [pass])], { kind: "none" });
+    const endpoints = Array.from(
+      container.querySelectorAll<SVGCircleElement>(".sky-endpoint"),
+    );
+    expect(endpoints).toHaveLength(2);
+    const ps = azElToPoint(pass.startAzDeg, 12);
+    const pe = azElToPoint(pass.endAzDeg, 30);
+    expect(Number(endpoints[0].getAttribute("cx"))).toBeCloseTo(ps.x, 1);
+    expect(Number(endpoints[0].getAttribute("cy"))).toBeCloseTo(ps.y, 1);
+    expect(Number(endpoints[1].getAttribute("cx"))).toBeCloseTo(pe.x, 1);
+    expect(Number(endpoints[1].getAttribute("cy"))).toBeCloseTo(pe.y, 1);
+  });
+
+  it("describes the pass without implying a horizon rise/set in the aria-label", () => {
+    renderOnePass();
+    const svg = container.querySelector(".skychart svg");
+    const label = svg?.getAttribute("aria-label") ?? "";
+    expect(label).toContain("の空に現れ");
+    expect(label).toContain("の空で見えなくなる");
+    expect(label).not.toContain("昇り");
+    expect(label).not.toContain("沈む");
+  });
+
+  it("keeps charts of multiple rows independent", () => {
+    renderForecast(
+      container,
+      [mkNight(day0, [mkPass(), mkPass({ brightness: 3 })])],
+      { kind: "none" },
+    );
+    const btns = container.querySelectorAll<HTMLButtonElement>("button.pass-row");
+    const wraps = container.querySelectorAll<HTMLElement>(".skychart-wrap");
+    expect(btns).toHaveLength(2);
+    expect(wraps).toHaveLength(2);
+    btns[1].click();
+    expect(wraps[0].hidden).toBe(true);
+    expect(wraps[1].hidden).toBe(false);
   });
 });
