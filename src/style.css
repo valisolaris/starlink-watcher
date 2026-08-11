@@ -447,3 +447,65 @@ html.dim body { filter: brightness(0.55); }
   color: var(--ink-2); /* 小文字はAAのためink-2 */
   margin: 0;
 }
+
+/* ---------- 画面タブ(予報/コンパス、新画面) ---------- */
+.view-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 14px 18px 0;
+}
+.view-tab {
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+  background: transparent;
+  color: var(--ink-2);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.view-tab:hover { border-color: var(--ink-3); color: var(--ink); }
+/* 選択中タブ: 塗りピル(.btn-fillと同じ強調様式) */
+.view-tab[aria-pressed="true"] {
+  color: #000;
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+/* ---------- コンパス画面(新画面): 方位センサー連動 ---------- */
+.compass-view-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.compass-target-caption { text-align: center; }
+.compass-permission { display: flex; justify-content: center; }
+.compass-svg {
+  width: 100%;
+  max-width: 230px;
+  height: auto;
+  display: block;
+}
+.compass-target-marker { fill: var(--ink); }
+/* 未整合は輪郭のみ(ink-2)、整合したら塗りつぶし(ink)で「重なった」ことを示す。
+   新しい色は使わずモノクロ内の強調で表現する(decisions.md D-009のaccent3箇所限定を尊重)。 */
+.compass-device-marker { fill: none; stroke: var(--ink-2); stroke-width: 2; }
+.compass-device-marker.is-aligned { fill: var(--ink); stroke: var(--ink); }
+.compass-readout { text-align: center; }
+.compass-delta {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-2); /* 小文字はAAのためink-2 */
+  font-variant-numeric: tabular-nums;
+}
+.compass-aligned {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}

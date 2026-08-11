@@ -40,6 +40,23 @@ export function svgRound(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/**
+ * 方位図の盤面(外周+30°/60°リング、N/E/S/W ラベル)。<svg>の内側にそのまま差し込む。
+ * forecast-ui.ts(パス方位図)と compass-ui.ts(コンパス盤)で共用する(simplifyレビューで
+ * 二重実装を指摘され統合。単純化レビュー2026-08-11)。
+ */
+export function skyDialChromeSvg(): string {
+  const r30 = svgRound(elevationRingRadius(30));
+  const r60 = svgRound(elevationRingRadius(60));
+  return `<circle class="sky-ring" cx="${SKY_CX}" cy="${SKY_CY}" r="${SKY_HORIZON_R}"/>
+    <circle class="sky-ring sky-ring-inner" cx="${SKY_CX}" cy="${SKY_CY}" r="${r30}"/>
+    <circle class="sky-ring sky-ring-inner" cx="${SKY_CX}" cy="${SKY_CY}" r="${r60}"/>
+    <text class="sky-label" x="100" y="10" text-anchor="middle">N</text>
+    <text class="sky-label" x="10" y="104" text-anchor="middle">E</text>
+    <text class="sky-label" x="100" y="198" text-anchor="middle">S</text>
+    <text class="sky-label" x="190" y="104" text-anchor="middle">W</text>`;
+}
+
 interface BezierControlPoints {
   p0: SkyPoint;
   q: SkyPoint;

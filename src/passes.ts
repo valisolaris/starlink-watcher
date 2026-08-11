@@ -293,6 +293,55 @@ function lookAtMs(
   return lookAt(satrec, gd, jd, gstime(jd));
 }
 
+export interface LiveLookAngles {
+  azDeg: number;
+  elDeg: number;
+  rangeKm: number;
+}
+
+/**
+ * 任意時刻での方位角・仰角・距離(コンパス画面のライブ追跡用)。lookAtMs の薄いラッパーで、
+ * 内部最適化用の ECI 座標(FastLook.eci)は外部に晒さない。
+ */
+export function liveLookAngles(
+  satrec: SatRec,
+  obs: Observer,
+  date: Date,
+): LiveLookAngles | null {
+  const look = lookAtMs(satrec, obsToGd(obs), date.getTime());
+  if (look === null) return null;
+  return { azDeg: look.azDeg, elDeg: look.elDeg, rangeKm: look.rangeKm };
+}
+
+export interface CompassTargetLook {
+  azDeg: number;
+  elDeg: number;
+  /** true = 現在時刻でのライブ位置、false = 静的な目標(最大仰角点) */
+  live: boolean;
+}
+
+/**
+ * コンパス画面(新画面)が追跡中パスに対して示すべき目標の方位角・仰角。
+ * 可視時間帯中かつsatrecが渡されていればライブ計算、それ以外(時間帯外・satrec無し・
+ * 伝播失敗)は最大仰角点(静的)にフォールバックする。
+ * UIの薄い配線層(ui.ts)から分離し単体テスト可能にする(simplifyレビューのaltitude指摘対応。
+ * 2026-08-11)。
+ */
+export function resolveCompassTarget(
+  pass: VisiblePass,
+  satrec: SatRec | null,
+  obs: Observer,
+  now: Date,
+): CompassTargetLook {
+  const withinWindow =
+    now.getTime() >= pass.startTime.getTime() && now.getTime() <= pass.endTime.getTime();
+  if (withinWindow && satrec) {
+    const look = liveLookAngles(satrec, obs, now);
+    if (look) return { azDeg: look.azDeg, elDeg: look.elDeg, live: true };
+  }
+  return { azDeg: pass.maxAzDeg, elDeg: pass.maxElevationDeg, live: false };
+}
+
 /** 細分走査の1サンプル(ECI 付き。日照判定の再伝播を避ける) */
 interface FineSample {
   ms: number;

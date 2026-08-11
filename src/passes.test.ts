@@ -10,8 +10,10 @@ import {
   deriveVerdict,
   findGeometricPasses,
   forecastCacheKey,
+  liveLookAngles,
   loadForecastCache,
   nightWindows,
+  resolveCompassTarget,
   saveForecastCache,
   selectTopPasses,
   splitVisibleRuns,
@@ -188,6 +190,84 @@ describe("findGeometricPasses", () => {
       end: new Date(t0.getTime() + 5 * 60 * 1000),
     };
     expect(findGeometricPasses(satrec, obs, segment)).toHaveLength(0);
+  });
+});
+
+describe("liveLookAngles", () => {
+  it("returns near-zenith elevation for an observer directly under the satellite", () => {
+    const satrec = gpToSatrec(SYNTH_GP)!;
+    const t0 = new Date(Date.UTC(2026, 7, 9, 12, 30, 0));
+    const pv = propagate(satrec, t0)!;
+    const gd = eciToGeodetic(pv.position, gstime(t0));
+    const obs = { lat: degreesLat(gd.latitude), lon: degreesLong(gd.longitude) };
+    const look = liveLookAngles(satrec, obs, t0);
+    expect(look).not.toBeNull();
+    expect(look!.elDeg).toBeGreaterThan(80);
+    expect(look!.rangeKm).toBeGreaterThan(0);
+  });
+
+  it("returns a low/negative elevation for an observer on the far side of the earth", () => {
+    const satrec = gpToSatrec(SYNTH_GP)!;
+    const t0 = new Date(Date.UTC(2026, 7, 9, 12, 30, 0));
+    const pv = propagate(satrec, t0)!;
+    const gd = eciToGeodetic(pv.position, gstime(t0));
+    const obs = {
+      lat: -degreesLat(gd.latitude),
+      lon: ((degreesLong(gd.longitude) + 180 + 540) % 360) - 180,
+    };
+    const look = liveLookAngles(satrec, obs, t0);
+    expect(look).not.toBeNull();
+    expect(look!.elDeg).toBeLessThan(0);
+  });
+
+  it("moves the azimuth/elevation as time advances (live tracking is not static)", () => {
+    const satrec = gpToSatrec(SYNTH_GP)!;
+    const t0 = new Date(Date.UTC(2026, 7, 9, 12, 30, 0));
+    const later = new Date(t0.getTime() + 60_000);
+    const a = liveLookAngles(satrec, TOKYO, t0);
+    const b = liveLookAngles(satrec, TOKYO, later);
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    expect(a!.azDeg === b!.azDeg && a!.elDeg === b!.elDeg).toBe(false);
+  });
+});
+
+describe("resolveCompassTarget", () => {
+  const satrec = gpToSatrec(SYNTH_GP)!;
+
+  function mkTrackedPass(windowCenter: Date): VisiblePass {
+    return mkPass({
+      startTime: new Date(windowCenter.getTime() - 60_000),
+      endTime: new Date(windowCenter.getTime() + 60_000),
+      maxAzDeg: 111,
+      maxElevationDeg: 22,
+    });
+  }
+
+  it("returns a live look angle when now is within the pass window and a satrec is provided", () => {
+    const t0 = new Date(Date.UTC(2026, 7, 9, 12, 30, 0));
+    const pv = propagate(satrec, t0)!;
+    const gd = eciToGeodetic(pv.position, gstime(t0));
+    const obs = { lat: degreesLat(gd.latitude), lon: degreesLong(gd.longitude) };
+    const pass = mkTrackedPass(t0);
+    const result = resolveCompassTarget(pass, satrec, obs, t0);
+    expect(result.live).toBe(true);
+    // 観測者は t0 時点で衛星直下にいるため、ほぼ天頂(高仰角)になるはず
+    expect(result.elDeg).toBeGreaterThan(80);
+  });
+
+  it("falls back to the static max-elevation point when now is outside the pass window", () => {
+    const t0 = new Date(Date.UTC(2026, 7, 9, 12, 30, 0));
+    const pass = mkTrackedPass(new Date(t0.getTime() + 10 * 60_000)); // 窓は10分後
+    const result = resolveCompassTarget(pass, satrec, TOKYO, t0);
+    expect(result).toEqual({ azDeg: pass.maxAzDeg, elDeg: pass.maxElevationDeg, live: false });
+  });
+
+  it("falls back to the static point when no satrec is available", () => {
+    const t0 = new Date(Date.UTC(2026, 7, 9, 12, 30, 0));
+    const pass = mkTrackedPass(t0);
+    const result = resolveCompassTarget(pass, null, TOKYO, t0);
+    expect(result).toEqual({ azDeg: pass.maxAzDeg, elDeg: pass.maxElevationDeg, live: false });
   });
 });
 

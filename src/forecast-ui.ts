@@ -5,10 +5,9 @@
 import { azimuthToCompass8, type Brightness } from "./astro.ts";
 import type { NightForecast, TrainInfo, Verdict, VisiblePass } from "./passes.ts";
 import {
-  SKY_HORIZON_R,
   azElToPoint,
-  elevationRingRadius,
   passArcPath,
+  skyDialChromeSvg,
   svgRound,
   trainDotPoints,
 } from "./sky-map.ts";
@@ -30,6 +29,7 @@ export const FORECAST_STRINGS = {
   forecastEyebrow: "5日分の予報",
   trainEyebrow: "TRAIN",
   trainNewCopy: "新規検出・まだ明るく見える時期です",
+  trackButton: "コンパスで狙う",
 } as const;
 
 /** design-brief §1「打ち上げから3日目」相当のコピー。日数は初回検出日からの推定(S4) */
@@ -173,8 +173,6 @@ function skyChartHtml(p: VisiblePass): string {
   const ps = azElToPoint(start.azDeg, start.elDeg);
   const pm = azElToPoint(max.azDeg, max.elDeg);
   const pe = azElToPoint(end.azDeg, end.elDeg);
-  const r30 = svgRound(elevationRingRadius(30));
-  const r60 = svgRound(elevationRingRadius(60));
   const trainNote = p.train ? "打ち上げ直後のトレイン。" : "";
   const label = `${trainNote}${azimuthToCompass8(p.startAzDeg)}の空に現れ、${azimuthToCompass8(p.maxAzDeg)}で最大仰角${Math.round(p.maxElevationDeg)}度に達し、${azimuthToCompass8(p.endAzDeg)}の空で見えなくなる。北が上、東が左の見上げ図。`;
   // S4: トレイン由来のパスは弧上に等間隔ドット列(design-brief「真珠の連なり」)を重ねる
@@ -189,13 +187,7 @@ function skyChartHtml(p: VisiblePass): string {
   return `
     <div class="skychart">
       <svg viewBox="0 0 200 200" role="img" aria-label="${label}">
-        <circle class="sky-ring" cx="100" cy="100" r="${SKY_HORIZON_R}"/>
-        <circle class="sky-ring sky-ring-inner" cx="100" cy="100" r="${r30}"/>
-        <circle class="sky-ring sky-ring-inner" cx="100" cy="100" r="${r60}"/>
-        <text class="sky-label" x="100" y="10" text-anchor="middle">N</text>
-        <text class="sky-label" x="10" y="104" text-anchor="middle">E</text>
-        <text class="sky-label" x="100" y="198" text-anchor="middle">S</text>
-        <text class="sky-label" x="190" y="104" text-anchor="middle">W</text>
+        ${skyDialChromeSvg()}
         <path class="sky-arc" d="${passArcPath(start, max, end)}" pathLength="1"/>
         ${trainDots}
         <circle class="sky-endpoint" cx="${svgRound(ps.x)}" cy="${svgRound(ps.y)}" r="3"/>
@@ -203,6 +195,7 @@ function skyChartHtml(p: VisiblePass): string {
         <circle class="sky-elev-max" cx="${svgRound(pm.x)}" cy="${svgRound(pm.y)}" r="4.5"/>
       </svg>
       <p class="skychart-caption">最大仰角 <b>${Math.round(p.maxElevationDeg)}°</b>(${azimuthToCompass8(p.maxAzDeg)})/ ${formatJstTime(p.maxTime)} 頃 / 明るさ目安 <b>${brightnessDots(p.brightness)}</b></p>
+      <button class="btn btn-ghost" type="button" data-track-pass>${FORECAST_STRINGS.trackButton}</button>
     </div>`;
 }
 
@@ -244,6 +237,27 @@ function bindSkyChartToggles(container: HTMLElement): void {
   }
 }
 
+/**
+ * 「コンパスで狙う」ボタンを、対応する VisiblePass にひもづけてバインドする。
+ * ボタンは nights→passes と同じ順序でDOMに現れるため、表示順で単純にzipする
+ * (以前はchartId文字列をMapに積んでDOM経由で逆引きしていたが、IDスキームの二重管理になる
+ * ためsimplifyレビューで単純化。2026-08-11)。
+ */
+function bindTrackButtons(
+  container: HTMLElement,
+  nights: NightForecast[],
+  onTrackPass?: (pass: VisiblePass) => void,
+): void {
+  if (!onTrackPass) return;
+  const passesInOrder = nights.flatMap((night) => night.passes);
+  const buttons = container.querySelectorAll<HTMLButtonElement>("[data-track-pass]");
+  buttons.forEach((btn, i) => {
+    const pass = passesInOrder[i];
+    if (!pass) return;
+    btn.addEventListener("click", () => onTrackPass(pass));
+  });
+}
+
 export function renderForecast(
   container: HTMLElement,
   nights: NightForecast[],
@@ -252,6 +266,8 @@ export function renderForecast(
     stale?: boolean;
     /** S4: TRAINバンド(バンド2)に表示するパス。null/未指定ならバンド非表示 */
     trainHighlight?: (VisiblePass & { train: TrainInfo }) | null;
+    /** コンパス画面(新画面)への引き渡し。未指定ならボタンは描画されても無反応 */
+    onTrackPass?: (pass: VisiblePass) => void;
   },
 ): void {
   const stale = opts?.stale
@@ -282,4 +298,5 @@ export function renderForecast(
       ${nightsHtml}
     </div>`;
   bindSkyChartToggles(container);
+  bindTrackButtons(container, nights, opts?.onTrackPass);
 }

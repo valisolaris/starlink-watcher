@@ -327,3 +327,34 @@ describe("sky chart accordion (S3)", () => {
     expect(wraps[1].hidden).toBe(false);
   });
 });
+
+// コンパス画面への引き渡し導線: 方位図内の「コンパスで狙う」ボタン
+describe("track pass hand-off (compass view)", () => {
+  const day0 = Date.UTC(2026, 7, 10);
+
+  it("renders a track-pass button inside the expanded sky chart", () => {
+    const pass = mkPass();
+    renderForecast(container, [mkNight(day0, [pass])], { kind: "none" });
+    const btn = container.querySelector<HTMLButtonElement>("[data-track-pass]");
+    expect(btn).not.toBeNull();
+    expect(btn!.textContent).toContain(FORECAST_STRINGS.trackButton);
+  });
+
+  it("calls onTrackPass with the matching VisiblePass when clicked", () => {
+    const passA = mkPass();
+    const passB = mkPass();
+    const onTrackPass = vi.fn();
+    renderForecast(container, [mkNight(day0, [passA, passB])], { kind: "none" }, { onTrackPass });
+    const buttons = container.querySelectorAll<HTMLButtonElement>("[data-track-pass]");
+    expect(buttons).toHaveLength(2);
+    buttons[1].click();
+    expect(onTrackPass).toHaveBeenCalledTimes(1);
+    expect(onTrackPass).toHaveBeenCalledWith(passB);
+  });
+
+  it("does not throw when clicked without an onTrackPass handler", () => {
+    renderForecast(container, [mkNight(day0, [mkPass()])], { kind: "none" });
+    const btn = container.querySelector<HTMLButtonElement>("[data-track-pass]")!;
+    expect(() => btn.click()).not.toThrow();
+  });
+});

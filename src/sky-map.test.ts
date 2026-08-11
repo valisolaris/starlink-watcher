@@ -10,6 +10,7 @@ import {
   elevationRingRadius,
   passArcPath,
   passArcPoint,
+  skyDialChromeSvg,
   trainDotPoints,
 } from "./sky-map.ts";
 
@@ -30,6 +31,22 @@ describe("elevationRingRadius", () => {
 
   it("maps the zenith (90 deg) to the center", () => {
     expect(elevationRingRadius(90)).toBeCloseTo(0, 5);
+  });
+});
+
+describe("skyDialChromeSvg (shared dial chrome: rings + N/E/S/W labels)", () => {
+  it("includes three rings and all four compass labels", () => {
+    const html = skyDialChromeSvg();
+    expect(html.match(/class="sky-ring/g)).toHaveLength(3);
+    expect(html).toContain(">N<");
+    expect(html).toContain(">E<");
+    expect(html).toContain(">S<");
+    expect(html).toContain(">W<");
+  });
+
+  it("centers rings on SKY_CX/SKY_CY (not a hardcoded literal)", () => {
+    const html = skyDialChromeSvg();
+    expect(html).toContain(`cx="${SKY_CX}" cy="${SKY_CY}"`);
   });
 });
 

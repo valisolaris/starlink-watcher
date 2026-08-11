@@ -1,6 +1,7 @@
 // ui.ts DOM tests (jsdom). 地点変更パネルを開いた時の自動スクロール検証。
 // Test names are ASCII-safe wording to avoid cp932 console issues on Windows.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { COMPASS_UI_STRINGS } from "./compass-ui.ts";
 import { saveLocation } from "./location.ts";
 import { mount, UI_STRINGS } from "./ui.ts";
 
@@ -178,5 +179,48 @@ describe("current-location error messaging by GeolocationPositionError.code", ()
         UI_STRINGS.geolocationDenied,
       );
     });
+  });
+});
+
+// 新画面: 「予報」/「コンパス」タブ切り替え。フォアキャスト取得の成否とは独立して検証できる
+// (このファイルの他テスト同様、fetchは常に失敗させておりフォアキャスト計算経路は通さない)。
+describe("view tabs (forecast / compass)", () => {
+  it("shows the forecast view and hides the compass view by default", () => {
+    mount(root);
+    expect(root.querySelector<HTMLElement>("[data-forecast-view]")!.hidden).toBe(false);
+    expect(root.querySelector<HTMLElement>("[data-compass-view]")!.hidden).toBe(true);
+    expect(root.querySelector('[data-tab="forecast"]')!.getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(root.querySelector('[data-tab="compass"]')!.getAttribute("aria-pressed")).toBe(
+      "false",
+    );
+  });
+
+  it("switches to the compass view when the compass tab is clicked", () => {
+    mount(root);
+    root.querySelector<HTMLButtonElement>('[data-tab="compass"]')!.click();
+    expect(root.querySelector<HTMLElement>("[data-forecast-view]")!.hidden).toBe(true);
+    expect(root.querySelector<HTMLElement>("[data-compass-view]")!.hidden).toBe(false);
+    expect(root.querySelector('[data-tab="compass"]')!.getAttribute("aria-pressed")).toBe("true");
+    expect(root.querySelector('[data-tab="forecast"]')!.getAttribute("aria-pressed")).toBe(
+      "false",
+    );
+  });
+
+  it("switches back to the forecast view when the forecast tab is clicked again", () => {
+    mount(root);
+    root.querySelector<HTMLButtonElement>('[data-tab="compass"]')!.click();
+    root.querySelector<HTMLButtonElement>('[data-tab="forecast"]')!.click();
+    expect(root.querySelector<HTMLElement>("[data-forecast-view]")!.hidden).toBe(false);
+    expect(root.querySelector<HTMLElement>("[data-compass-view]")!.hidden).toBe(true);
+  });
+
+  it("shows the compass empty-state guidance before any pass has been tracked", () => {
+    mount(root);
+    root.querySelector<HTMLButtonElement>('[data-tab="compass"]')!.click();
+    expect(root.querySelector("[data-compass-view]")!.textContent).toContain(
+      COMPASS_UI_STRINGS.emptyCopy,
+    );
   });
 });

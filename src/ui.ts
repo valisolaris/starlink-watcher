@@ -11,13 +11,16 @@ import {
   type GeocodeResult,
   type ObserverLocation,
 } from "./location.ts";
-import { getGpData } from "./gp.ts";
+import { getGpData, gpToSatrec, type GpRecord } from "./gp.ts";
+import type { SatRec } from "satellite.js";
 import {
   computeForecast,
   deriveVerdict,
   forecastCacheKey,
   loadForecastCache,
+  resolveCompassTarget,
   saveForecastCache,
+  type VisiblePass,
 } from "./passes.ts";
 import {
   renderForecast,
@@ -31,9 +34,22 @@ import {
   refreshTrainDays,
   trackFirstSeen,
 } from "./train.ts";
+import {
+  requestOrientationPermission,
+  subscribeOrientation,
+  type OrientationPermission,
+  type OrientationSample,
+} from "./compass.ts";
+import {
+  renderCompass,
+  renderCompassEmpty,
+  type CompassTarget,
+} from "./compass-ui.ts";
 
 export const UI_STRINGS = {
   appName: "STARLINK WATCH",
+  tabForecast: "予報",
+  tabCompass: "コンパス",
   chipUnset: "地点を設定",
   emptyCopy: "観測地点を設定すると、5日分の予報を表示します",
   useCurrentLocation: "現在地を使う",
@@ -81,7 +97,12 @@ export function mount(root: HTMLElement): void {
       <span class="app-name din">${UI_STRINGS.appName}</span>
       <button class="chip" type="button" data-chip aria-expanded="false"></button>
     </header>
+    <div class="view-tabs" data-view-tabs>
+      <button class="view-tab" type="button" data-tab="forecast" aria-pressed="true">${UI_STRINGS.tabForecast}</button>
+      <button class="view-tab" type="button" data-tab="compass" aria-pressed="false">${UI_STRINGS.tabCompass}</button>
+    </div>
     <main>
+      <div data-forecast-view>
       <section class="band" data-main-band>
         <p class="empty-copy" data-empty-copy>${UI_STRINGS.emptyCopy}</p>
         <div class="forecast" data-forecast hidden></div>
@@ -118,6 +139,8 @@ export function mount(root: HTMLElement): void {
           </form>
         </div>
       </section>
+      </div>
+      <div class="band" data-compass-view hidden></div>
     </main>
     <footer class="app-footer">
       <label class="dim-toggle"><input type="checkbox" data-dim-toggle /> ${UI_STRINGS.dimToggle}</label>
@@ -139,9 +162,110 @@ export function mount(root: HTMLElement): void {
   const manualStatus = el<HTMLElement>(root, "[data-manual-status]");
   const latInput = el<HTMLInputElement>(root, "#lat-input");
   const dimToggle = el<HTMLInputElement>(root, "[data-dim-toggle]");
+  const forecastView = el<HTMLElement>(root, "[data-forecast-view]");
+  const compassView = el<HTMLElement>(root, "[data-compass-view]");
+  const tabForecastBtn = el<HTMLButtonElement>(root, '[data-tab="forecast"]');
+  const tabCompassBtn = el<HTMLButtonElement>(root, '[data-tab="compass"]');
 
   // ストレージが使えない環境でもセッション内では動くよう、現在地点はメモリ上でも保持する
   let current: ObserverLocation | null = loadLocation();
+
+  // コンパス画面(新画面): 追跡対象パス・そのsatrec(トラッキング開始時に1回だけ解決、毎tick
+  // 1.1万件から再探索しない。simplifyレビューのefficiency指摘対応)・センサー状態を保持する。
+  // GPレコードは refreshForecast が既に取得したものを再利用し、再フェッチはしない
+  // (CelesTrak への配慮を強制する gp.ts の2時間キャッシュ方針と一貫させるため)。
+  let trackedPass: VisiblePass | null = null;
+  let trackedSatrec: SatRec | null = null;
+  let lastGpRecords: GpRecord[] | null = null;
+  let compassPermission: OrientationPermission | "unrequested" = "unrequested";
+  let latestOrientation: OrientationSample = { headingDeg: null, elevationDeg: null };
+  let unsubscribeOrientation: (() => void) | null = null;
+  let compassTickId: ReturnType<typeof setInterval> | null = null;
+
+  /** 追跡中のパスの目標(衛星)方位角・仰角。ライブ/静的の分岐ロジックは passes.ts 側でテスト済み */
+  function computeCompassTarget(pass: VisiblePass): CompassTarget {
+    const look = current
+      ? resolveCompassTarget(pass, trackedSatrec, { lat: current.lat, lon: current.lon }, new Date())
+      : { azDeg: pass.maxAzDeg, elDeg: pass.maxElevationDeg, live: false as const };
+    return { satName: pass.satName, ...look };
+  }
+
+  function renderCompassView(): void {
+    if (!trackedPass) {
+      renderCompassEmpty(compassView);
+      return;
+    }
+    const target = computeCompassTarget(trackedPass);
+    const device =
+      latestOrientation.headingDeg !== null && latestOrientation.elevationDeg !== null
+        ? { headingDeg: latestOrientation.headingDeg, elevationDeg: latestOrientation.elevationDeg }
+        : null;
+    renderCompass(compassView, target, { permission: compassPermission, device }, () => {
+      void handleRequestPermission();
+    });
+  }
+
+  // タブ表示中のみ購読し、離れたら解除する(常時バックグラウンドでセンサーイベントを
+  // 受け続けるのは無駄なため。simplifyレビューのefficiency指摘対応)。許可自体は
+  // compassPermissionにキャッシュ済みなので、再許可を求めず購読だけ再開する。
+  function startOrientationSubscription(): void {
+    if (unsubscribeOrientation) return;
+    unsubscribeOrientation = subscribeOrientation((sample) => {
+      latestOrientation = sample;
+    });
+  }
+
+  function stopOrientationSubscription(): void {
+    unsubscribeOrientation?.();
+    unsubscribeOrientation = null;
+  }
+
+  async function handleRequestPermission(): Promise<void> {
+    compassPermission = await requestOrientationPermission();
+    if (compassPermission === "granted") startOrientationSubscription();
+    renderCompassView();
+  }
+
+  function stopCompassTicking(): void {
+    if (compassTickId !== null) {
+      clearInterval(compassTickId);
+      compassTickId = null;
+    }
+  }
+
+  // 可視時間帯中はライブ位置が動くため、コンパスタブ表示中のみ1秒間隔で再描画する。
+  // タブを離れると即座に stopCompassTicking で interval 自体を止めるため、この
+  // コールバックが呼ばれる時点では常に activeView === "compass"(JSはシングルスレッドで、
+  // 離脱の同期処理とinterval発火が競合しない。simplifyレビューで冗長ガードと指摘され削除)。
+  function startCompassTicking(): void {
+    stopCompassTicking();
+    compassTickId = setInterval(renderCompassView, 1000);
+  }
+
+  function setActiveView(view: "forecast" | "compass"): void {
+    forecastView.hidden = view !== "forecast";
+    compassView.hidden = view !== "compass";
+    tabForecastBtn.setAttribute("aria-pressed", String(view === "forecast"));
+    tabCompassBtn.setAttribute("aria-pressed", String(view === "compass"));
+    if (view === "compass") {
+      renderCompassView();
+      startCompassTicking();
+      if (compassPermission === "granted") startOrientationSubscription();
+    } else {
+      stopCompassTicking();
+      stopOrientationSubscription();
+    }
+  }
+
+  function handleTrackPass(pass: VisiblePass): void {
+    trackedPass = pass;
+    const rec = lastGpRecords?.find((r) => r.OBJECT_ID === pass.objectId) ?? null;
+    trackedSatrec = rec ? gpToSatrec(rec) : null;
+    setActiveView("compass");
+  }
+
+  tabForecastBtn.addEventListener("click", () => setActiveView("forecast"));
+  tabCompassBtn.addEventListener("click", () => setActiveView("compass"));
 
   // reveal: 予報リストが長い場合パネルが画面外に配置されるため、ユーザー操作で
   // 開いたことに気づけるよう明示的にスクロールする(初期表示・adopt後の自動closeは対象外)
@@ -179,6 +303,7 @@ export function mount(root: HTMLElement): void {
     try {
       const gp = await getGpData();
       if (seq !== forecastSeq) return;
+      lastGpRecords = gp.snapshot.records;
       const obs = { lat: loc.lat, lon: loc.lon };
       const key = forecastCacheKey(obs, gp.snapshot.fetchedAt);
       let nights = loadForecastCache(key);
@@ -221,6 +346,7 @@ export function mount(root: HTMLElement): void {
       renderForecast(forecastEl, nights, verdict, {
         stale: gp.source === "stale-cache",
         trainHighlight,
+        onTrackPass: handleTrackPass,
       });
     } catch {
       if (seq !== forecastSeq) return;
