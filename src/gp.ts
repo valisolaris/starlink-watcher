@@ -33,7 +33,7 @@ export interface GpSnapshot {
   records: GpRecord[];
 }
 
-export type GpSource = "cache" | "network" | "stale-cache";
+export type GpSource = "cache" | "network" | "stale-cache" | "snapshot";
 
 export interface GpResult {
   snapshot: GpSnapshot;
@@ -52,6 +52,12 @@ export const GP_MIN_FETCH_INTERVAL_MS = 2 * 60 * 60 * 1000;
 export const GP_MIN_VALID_RECORDS = 100;
 /** 生レコード数に対する有効率の下限(部分的スキーマ変化の検知) */
 export const GP_MIN_VALID_RATIO = 0.5;
+/** S5: 同梱スナップショット(GitHub Actions が日次生成)の配信パス */
+export const GP_SNAPSHOT_URL = "/data/gp-snapshot.json";
+/** S5: build-snapshot.ts がgzip圧縮を選んだ場合の配信パス(1MB超のため通常はこちらが使われる) */
+export const GP_SNAPSHOT_GZ_URL = "/data/gp-snapshot.json.gz";
+/** S5: 同梱スナップショットを新鮮とみなす上限(D-010: 24h超は直fetchへフォールバック) */
+export const GP_SNAPSHOT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const NUMERIC_FIELDS = [
   "NORAD_CAT_ID",
@@ -137,21 +143,72 @@ export function loadGpCache(): GpSnapshot | null {
   } catch {
     return null;
   }
-  if (typeof parsed !== "object" || parsed === null) return null;
-  const v = parsed as Record<string, unknown>;
+  // 形状検証は parseGpSnapshotJson と共用(1件でも壊れていたらキャッシュ全体を不正扱い)
+  return parseGpSnapshotJson(parsed);
+}
+
+export function saveGpCache(snap: GpSnapshot): boolean {
+  return safeSetItem(GP_STORAGE_KEY, JSON.stringify(snap));
+}
+
+/**
+ * 生JSON(スナップショットファイル・localStorageキャッシュ共用の形状検証)を GpSnapshot に検証する。
+ * S5: build-snapshot.ts が生成するファイルと loadGpCache のキャッシュ形式は同一形状のため共用する。
+ */
+export function parseGpSnapshotJson(raw: unknown): GpSnapshot | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const v = raw as Record<string, unknown>;
   if (typeof v.fetchedAt !== "number" || !Number.isFinite(v.fetchedAt)) return null;
   if (!Array.isArray(v.records)) return null;
   const records: GpRecord[] = [];
   for (const rawRec of v.records) {
     const rec = trimGpRecord(rawRec);
-    if (rec === null) return null; // 1件でも壊れていたらキャッシュ全体を不正扱い
+    if (rec === null) return null;
     records.push(rec);
   }
   return { fetchedAt: v.fetchedAt, records };
 }
 
-export function saveGpCache(snap: GpSnapshot): boolean {
-  return safeSetItem(GP_STORAGE_KEY, JSON.stringify(snap));
+/**
+ * url を取得して JSON を返す。".gz" で終わる URL は DecompressionStream で展開してから
+ * パースする(build-snapshot.ts が1MB超で gzip 出力するため)。fetch失敗・HTTPエラー・
+ * 展開不可(DecompressionStream 非対応環境)・パース失敗はすべて null。
+ */
+async function fetchJsonMaybeGz(url: string, fetchFn: typeof fetch): Promise<unknown | null> {
+  let res: Awaited<ReturnType<typeof fetch>>;
+  try {
+    res = await fetchFn(url);
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+  try {
+    if (!url.endsWith(".gz")) return await res.json();
+    if (typeof DecompressionStream === "undefined" || !res.body) {
+      throw new Error("gzip decompression unavailable");
+    }
+    const stream = res.body.pipeThrough(new DecompressionStream("gzip"));
+    return JSON.parse(await new Response(stream).text());
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * S5: 同梱スナップショットを取得する。まず GP_SNAPSHOT_URL(平文)、無ければ
+ * GP_SNAPSHOT_GZ_URL(gzip、build-snapshot.ts が1MB超で選ぶ形式)を試す。
+ * どちらも存在しない(404)・壊れている・fetch 失敗の場合は null(呼び出し側の直fetchへ委ねる)。
+ */
+export async function loadBundledSnapshot(
+  fetchFn: typeof fetch = fetch,
+): Promise<GpSnapshot | null> {
+  const plain = await fetchJsonMaybeGz(GP_SNAPSHOT_URL, fetchFn);
+  if (plain !== null) {
+    const parsed = parseGpSnapshotJson(plain);
+    if (parsed !== null) return parsed;
+  }
+  const gz = await fetchJsonMaybeGz(GP_SNAPSHOT_GZ_URL, fetchFn);
+  return gz !== null ? parseGpSnapshotJson(gz) : null;
 }
 
 /**
@@ -170,6 +227,14 @@ export async function getGpData(opts?: {
   const cacheAge = cache ? now - cache.fetchedAt : null;
   if (cache && cacheAge !== null && cacheAge >= 0 && cacheAge < GP_MIN_FETCH_INTERVAL_MS) {
     return { snapshot: cache, source: "cache", persisted: true };
+  }
+  // S5(D-010): 同梱スナップショットが「24時間超で古い」わけではない(=24h以内)ならそれを
+  // 使い、直fetchを避ける(codex軽微指摘対応: ちょうど24hは「超」ではないため新鮮扱い)
+  const bundled = await loadBundledSnapshot(fetchFn);
+  const bundledAge = bundled ? now - bundled.fetchedAt : null;
+  if (bundled && bundledAge !== null && bundledAge >= 0 && bundledAge <= GP_SNAPSHOT_MAX_AGE_MS) {
+    const persisted = saveGpCache(bundled);
+    return { snapshot: bundled, source: "snapshot", persisted };
   }
   try {
     const res = await fetchFn(GP_URL);

@@ -1,0 +1,42 @@
+name: Update GP Snapshot
+
+on:
+  schedule:
+    # 日次1回(UTC 03:17 = JST 12:17ごろ)
+    - cron: "17 3 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# schedule と workflow_dispatch が重なった場合、後発の push が non-fast-forward で
+# 失敗しうるため直列化する(codex軽微指摘対応)
+concurrency:
+  group: update-gp-snapshot
+  cancel-in-progress: false
+
+jobs:
+  update-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - run: npm run build:snapshot
+
+      - name: Commit snapshot if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A -- public/data/
+          if git diff --cached --quiet; then
+            echo "No snapshot changes to commit"
+          else
+            git commit -m "chore: update GP snapshot"
+            git push
+          fi
