@@ -39,7 +39,7 @@ export const UI_STRINGS = {
   useCurrentLocation: "現在地を使う",
   orSearchPlace: "地名で探す",
   orManualCoords: "緯度・経度を入力する",
-  searchPlaceholder: "例: 千代田区",
+  searchPlaceholder: "例: 千代田区 / 新宿区西新宿2-8-1",
   searchButton: "検索",
   searchNoResult: "見つかりませんでした。別の地名か、緯度経度の入力をお試しください。",
   searchFailed: "検索できませんでした。時間をおいて再試行するか、緯度経度を入力してください。",

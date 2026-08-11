@@ -1,5 +1,5 @@
-// 観測地点の状態管理: localStorage 保存・復元、Geolocation、Photon 地名検索、緯度経度検証。
-// 位置情報(緯度経度)は端末外へ送信しない(D-002/D-004)。Photon へは地名文字列のみ送る。
+// 観測地点の状態管理: localStorage 保存・復元、Geolocation、GSI(国土地理院)住所検索、緯度経度検証。
+// 位置情報(緯度経度)は端末外へ送信しない(D-002/D-004)。GSI へは地名文字列のみ送る。
 
 export interface ObserverLocation {
   lat: number;
@@ -21,7 +21,10 @@ export type CoordsValidation =
 
 export const STORAGE_KEY = "starlink-watcher:location:v1";
 
-export const PHOTON_ENDPOINT = "https://photon.komoot.io/api/";
+export const GSI_ENDPOINT = "https://msearch.gsi.go.jp/address-search/AddressSearch";
+
+// GSI に limit 相当の公式パラメータは無いため、結果件数はクライアント側で切り詰める
+const SEARCH_RESULT_LIMIT = 5;
 
 // localStorage はストレージ無効化・容量超過で例外を投げうるため、直接触らず必ずここを通す
 export function safeGetItem(key: string): string | null {
@@ -100,12 +103,12 @@ export function validateCoords(latInput: string, lonInput: string): CoordsValida
   return { ok: true, lat, lon };
 }
 
-export function parsePhotonResponse(json: unknown): GeocodeResult[] {
-  if (typeof json !== "object" || json === null) return [];
-  const features = (json as { features?: unknown }).features;
-  if (!Array.isArray(features)) return [];
+// GSI のレスポンスは FeatureCollection ではなく素の Feature 配列で、
+// ラベルは properties.title 1本(実測して確認済み)。
+export function parseGsiResponse(json: unknown): GeocodeResult[] {
+  if (!Array.isArray(json)) return [];
   const out: GeocodeResult[] = [];
-  for (const feature of features) {
+  for (const feature of json) {
     if (typeof feature !== "object" || feature === null) continue;
     const geometry = (feature as { geometry?: unknown }).geometry;
     const coordinates =
@@ -119,10 +122,8 @@ export function parsePhotonResponse(json: unknown): GeocodeResult[] {
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
     if (!coordsInRange(lat, lon)) continue;
     const props = ((feature as { properties?: unknown }).properties ?? {}) as Record<string, unknown>;
-    const parts = [props.name, props.city, props.state, props.country].filter(
-      (p): p is string => typeof p === "string" && p.length > 0,
-    );
-    const label = [...new Set(parts)].join(" ") || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    const title = typeof props.title === "string" ? props.title.trim() : "";
+    const label = title || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
     out.push({ lat, lon, label });
   }
   return out;
@@ -132,11 +133,10 @@ export async function searchPlace(
   query: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<GeocodeResult[]> {
-  // lang=default: OSM のローカル言語名(日本の地名なら日本語)を返させる(D-008)
-  const url = `${PHOTON_ENDPOINT}?q=${encodeURIComponent(query)}&limit=5&lang=default`;
+  const url = `${GSI_ENDPOINT}?q=${encodeURIComponent(query)}`;
   const res = await fetchFn(url);
   if (!res.ok) throw new Error(`geocoding failed: HTTP ${res.status}`);
-  return parsePhotonResponse(await res.json());
+  return parseGsiResponse(await res.json()).slice(0, SEARCH_RESULT_LIMIT);
 }
 
 export function getCurrentPosition(

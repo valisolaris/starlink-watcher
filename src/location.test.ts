@@ -5,7 +5,7 @@ import {
   clearLocation,
   getCurrentPosition,
   loadLocation,
-  parsePhotonResponse,
+  parseGsiResponse,
   saveLocation,
   searchPlace,
   validateCoords,
@@ -18,6 +18,17 @@ const tokyo: ObserverLocation = {
   label: "Tokyo Chiyoda",
   source: "manual",
 };
+
+// GSI(国土地理院)住所検索APIの実レスポンス形式: FeatureCollectionではなく素のFeature配列、
+// ラベルはproperties.title 1本(Photonのような複数フィールド連結は不要)。実測して確認済み。
+const gsiFeature = (lon: number, lat: number, title: string, addressCode = "") => ({
+  type: "Feature",
+  geometry: { type: "Point", coordinates: [lon, lat] },
+  properties: { title, addressCode },
+});
+
+const mockFetchJson = (payload: unknown, status = 200) =>
+  vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), { status }));
 
 beforeEach(() => {
   localStorage.clear();
@@ -127,91 +138,89 @@ describe("validateCoords", () => {
   });
 });
 
-describe("parsePhotonResponse", () => {
-  const photonFeature = (lon: number, lat: number, props: Record<string, unknown>) => ({
-    type: "Feature",
-    geometry: { type: "Point", coordinates: [lon, lat] },
-    properties: props,
-  });
-
-  it("extracts lat/lon (GeoJSON order is [lon, lat]) and builds a label", () => {
-    const json = {
-      type: "FeatureCollection",
-      features: [photonFeature(139.7539, 35.6938, { name: "Chiyoda", state: "Tokyo", country: "Japan" })],
-    };
-    const results = parsePhotonResponse(json);
+describe("parseGsiResponse", () => {
+  it("extracts lat/lon (GeoJSON order is [lon, lat]) and uses properties.title as the label", () => {
+    // 実際にGSI APIへ「川崎市麻生区片平3-11-1-4」を投げて得た実データ
+    const json = [gsiFeature(139.492935, 35.590492, "神奈川県川崎市麻生区片平三丁目１１番")];
+    const results = parseGsiResponse(json);
     expect(results).toHaveLength(1);
-    expect(results[0]!.lat).toBeCloseTo(35.6938);
-    expect(results[0]!.lon).toBeCloseTo(139.7539);
-    expect(results[0]!.label).toContain("Chiyoda");
+    expect(results[0]!.lat).toBeCloseTo(35.590492);
+    expect(results[0]!.lon).toBeCloseTo(139.492935);
+    expect(results[0]!.label).toBe("神奈川県川崎市麻生区片平三丁目１１番");
   });
 
-  it("returns empty array for empty feature list", () => {
-    expect(parsePhotonResponse({ type: "FeatureCollection", features: [] })).toEqual([]);
+  it("returns empty array for an empty array payload", () => {
+    expect(parseGsiResponse([])).toEqual([]);
   });
 
   it("returns empty array for malformed payloads instead of throwing", () => {
-    expect(parsePhotonResponse(null)).toEqual([]);
-    expect(parsePhotonResponse({})).toEqual([]);
-    expect(parsePhotonResponse({ features: "nope" })).toEqual([]);
+    expect(parseGsiResponse(null)).toEqual([]);
+    expect(parseGsiResponse({})).toEqual([]);
+    expect(parseGsiResponse("nope")).toEqual([]);
+    // GSIはFeatureCollectionでラップしないため、その形で来ても配列扱いできず空を返す
+    expect(parseGsiResponse({ type: "FeatureCollection", features: [] })).toEqual([]);
   });
 
   it("skips features with out-of-range coordinates", () => {
-    const json = {
-      type: "FeatureCollection",
-      features: [
-        photonFeature(999, 999, { name: "Broken" }),
-        photonFeature(135.0, 34.7, { name: "Osaka" }),
-      ],
-    };
-    const results = parsePhotonResponse(json);
+    const json = [gsiFeature(999, 999, "Broken"), gsiFeature(135.0, 34.7, "大阪府大阪市")];
+    const results = parseGsiResponse(json);
     expect(results).toHaveLength(1);
-    expect(results[0]!.label).toContain("Osaka");
+    expect(results[0]!.label).toBe("大阪府大阪市");
   });
 
   it("skips features without numeric coordinates", () => {
-    const json = {
-      type: "FeatureCollection",
-      features: [
-        { type: "Feature", geometry: { type: "Point", coordinates: ["x", "y"] }, properties: { name: "Bad" } },
-        photonFeature(135.0, 34.7, { name: "Osaka" }),
-      ],
-    };
-    const results = parsePhotonResponse(json);
+    const json = [
+      { type: "Feature", geometry: { type: "Point", coordinates: ["x", "y"] }, properties: { title: "Bad" } },
+      gsiFeature(135.0, 34.7, "大阪府大阪市"),
+    ];
+    const results = parseGsiResponse(json);
     expect(results).toHaveLength(1);
-    expect(results[0]!.label).toContain("Osaka");
+    expect(results[0]!.label).toBe("大阪府大阪市");
+  });
+
+  it("falls back to a coordinate string label when title is missing or empty", () => {
+    const json = [gsiFeature(135.0, 34.7, "")];
+    const results = parseGsiResponse(json);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.label).toBe("34.7000, 135.0000");
   });
 });
 
 describe("searchPlace", () => {
-  it("calls Photon with the URL-encoded query and parses the response", async () => {
-    const payload = {
-      type: "FeatureCollection",
-      features: [
-        {
-          type: "Feature",
-          geometry: { type: "Point", coordinates: [139.7539, 35.6938] },
-          properties: { name: "Chiyoda" },
-        },
-      ],
-    };
-    const fetchFn = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(payload), { status: 200 }),
-    );
-    const results = await searchPlace("chiyoda ward", fetchFn as unknown as typeof fetch);
+  it("calls GSI with the URL-encoded query and parses the response", async () => {
+    const payload = [gsiFeature(139.7539, 35.6938, "東京都千代田区", "13101")];
+    const fetchFn = mockFetchJson(payload);
+    const results = await searchPlace("千代田区", fetchFn as unknown as typeof fetch);
 
     expect(fetchFn).toHaveBeenCalledTimes(1);
     const calledUrl = String(fetchFn.mock.calls[0]![0]);
-    expect(calledUrl).toContain("photon.komoot.io");
-    expect(calledUrl).toContain("chiyoda%20ward");
-    // lang=default: OSM のローカル言語名(日本の地名なら日本語)を要求する(D-008)
-    expect(calledUrl).toContain("lang=default");
+    expect(calledUrl).toContain("msearch.gsi.go.jp");
+    expect(calledUrl).toContain(encodeURIComponent("千代田区"));
     expect(results).toHaveLength(1);
     expect(results[0]!.lat).toBeCloseTo(35.6938);
   });
 
+  it("resolves a banchi-level Japanese address using the real GSI response shape", async () => {
+    // 実際にGSI APIへ「川崎市麻生区片平3-11-1-4」を投げて得た実データをそのまま使う
+    const payload = [gsiFeature(139.492935, 35.590492, "神奈川県川崎市麻生区片平三丁目１１番")];
+    const fetchFn = mockFetchJson(payload);
+    const results = await searchPlace("川崎市麻生区片平3-11-1-4", fetchFn as unknown as typeof fetch);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]!.lat).toBeCloseTo(35.590492);
+    expect(results[0]!.lon).toBeCloseTo(139.492935);
+    expect(results[0]!.label).toBe("神奈川県川崎市麻生区片平三丁目１１番");
+  });
+
+  it("limits results to 5 even if the API returns more", async () => {
+    const payload = Array.from({ length: 7 }, (_, i) => gsiFeature(139.0 + i, 35.0 + i, `結果${i}`));
+    const fetchFn = mockFetchJson(payload);
+    const results = await searchPlace("東京", fetchFn as unknown as typeof fetch);
+    expect(results).toHaveLength(5);
+  });
+
   it("throws on non-OK HTTP response", async () => {
-    const fetchFn = vi.fn().mockResolvedValue(new Response("err", { status: 503 }));
+    const fetchFn = mockFetchJson("err", 503);
     await expect(searchPlace("tokyo", fetchFn as unknown as typeof fetch)).rejects.toThrow();
   });
 });
