@@ -139,9 +139,15 @@ export function mount(root: HTMLElement): void {
   // ストレージが使えない環境でもセッション内では動くよう、現在地点はメモリ上でも保持する
   let current: ObserverLocation | null = loadLocation();
 
-  function setPanelOpen(open: boolean): void {
+  // reveal: 予報リストが長い場合パネルが画面外に配置されるため、ユーザー操作で
+  // 開いたことに気づけるよう明示的にスクロールする(初期表示・adopt後の自動closeは対象外)
+  function setPanelOpen(open: boolean, reveal = false): void {
     locBand.hidden = !open;
     chip.setAttribute("aria-expanded", String(open));
+    if (reveal) {
+      const reduceMotion = globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      locBand.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    }
   }
 
   function render(): void {
@@ -233,14 +239,15 @@ export function mount(root: HTMLElement): void {
       // 保存失敗はセッション内動作を止めず、事実だけ伝える(codex指摘: 書き込み失敗の可視化)
       manualStatus.classList.add("is-error");
       manualStatus.textContent = UI_STRINGS.saveFailed;
-      setPanelOpen(true);
+      setPanelOpen(true, true);
     }
     // 操作完了位置を明確にする(スクリーンリーダー・キーボード配慮)
     chip.focus();
   }
 
   chip.addEventListener("click", () => {
-    setPanelOpen(chip.getAttribute("aria-expanded") !== "true");
+    const willOpen = chip.getAttribute("aria-expanded") !== "true";
+    setPanelOpen(willOpen, willOpen);
   });
 
   geolocateBtn.addEventListener("click", async () => {
