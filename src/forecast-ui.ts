@@ -3,14 +3,18 @@
 // accent の使用は「verdict の時刻数値」と「今夜、見えます」バッジのみ(D-009)。
 // 描画するテキストはすべて内部生成(衛星名等の外部文字列は出力しない)ため innerHTML を使う。
 import { azimuthToCompass8, type Brightness } from "./astro.ts";
-import type { NightForecast, Verdict, VisiblePass } from "./passes.ts";
+import type { NightForecast, TrainInfo, Verdict, VisiblePass } from "./passes.ts";
 import {
   SKY_HORIZON_R,
   azElToPoint,
   elevationRingRadius,
   passArcPath,
   svgRound,
+  trainDotPoints,
 } from "./sky-map.ts";
+
+/** トレインの弧上ドット数(実際の衛星数ではなく「真珠の連なり」の様式的表現、design-brief §0) */
+const TRAIN_DOT_COUNT = 6;
 
 export const FORECAST_STRINGS = {
   loadingFetch: "軌道データを取得中…",
@@ -24,7 +28,14 @@ export const FORECAST_STRINGS = {
   staleNote: "最新データを取得できなかったため、前回取得分で表示しています",
   emptyNight: "条件の良いパスはありません",
   forecastEyebrow: "5日分の予報",
+  trainEyebrow: "TRAIN",
+  trainNewCopy: "新規検出・まだ明るく見える時期です",
 } as const;
+
+/** design-brief §1「打ち上げから3日目」相当のコピー。日数は初回検出日からの推定(S4) */
+function trainDaysCopy(days: number): string {
+  return `(推定)打ち上げから${days}日目・まだ明るく見える時期です`;
+}
 
 const JST = "Asia/Tokyo";
 
@@ -137,6 +148,22 @@ function verdictHtml(verdict: Verdict): string {
     </div>`;
 }
 
+/** TRAINバンド(design-brief §1 バンド2)。トレインパスが無ければ空文字(バンド非表示) */
+export function trainBandHtml(
+  pass: (VisiblePass & { train: TrainInfo }) | null,
+): string {
+  if (pass === null) return "";
+  const copy =
+    pass.train.daysSinceDetected === null
+      ? FORECAST_STRINGS.trainNewCopy
+      : trainDaysCopy(pass.train.daysSinceDetected);
+  return `
+    <div class="train-band">
+      <div class="eyebrow">${FORECAST_STRINGS.trainEyebrow}</div>
+      <p class="train-copy">${copy}</p>
+    </div>`;
+}
+
 /** 方位図 SVG(S3)。早見盤流儀(北上・東左)。リング・ラベル位置は review.html 準拠(E/W のみ入替)。
  * 端点は可視区間の実仰角(仰角下限・影トリムにより地平線0°ではない。codex重大対応) */
 function skyChartHtml(p: VisiblePass): string {
@@ -148,7 +175,17 @@ function skyChartHtml(p: VisiblePass): string {
   const pe = azElToPoint(end.azDeg, end.elDeg);
   const r30 = svgRound(elevationRingRadius(30));
   const r60 = svgRound(elevationRingRadius(60));
-  const label = `${azimuthToCompass8(p.startAzDeg)}の空に現れ、${azimuthToCompass8(p.maxAzDeg)}で最大仰角${Math.round(p.maxElevationDeg)}度に達し、${azimuthToCompass8(p.endAzDeg)}の空で見えなくなる。北が上、東が左の見上げ図。`;
+  const trainNote = p.train ? "打ち上げ直後のトレイン。" : "";
+  const label = `${trainNote}${azimuthToCompass8(p.startAzDeg)}の空に現れ、${azimuthToCompass8(p.maxAzDeg)}で最大仰角${Math.round(p.maxElevationDeg)}度に達し、${azimuthToCompass8(p.endAzDeg)}の空で見えなくなる。北が上、東が左の見上げ図。`;
+  // S4: トレイン由来のパスは弧上に等間隔ドット列(design-brief「真珠の連なり」)を重ねる
+  const trainDots = p.train
+    ? trainDotPoints(start, max, end, TRAIN_DOT_COUNT)
+        .map(
+          (pt) =>
+            `<circle class="sky-train-dot" cx="${svgRound(pt.x)}" cy="${svgRound(pt.y)}" r="2.5"/>`,
+        )
+        .join("")
+    : "";
   return `
     <div class="skychart">
       <svg viewBox="0 0 200 200" role="img" aria-label="${label}">
@@ -160,6 +197,7 @@ function skyChartHtml(p: VisiblePass): string {
         <text class="sky-label" x="100" y="198" text-anchor="middle">S</text>
         <text class="sky-label" x="190" y="104" text-anchor="middle">W</text>
         <path class="sky-arc" d="${passArcPath(start, max, end)}" pathLength="1"/>
+        ${trainDots}
         <circle class="sky-endpoint" cx="${svgRound(ps.x)}" cy="${svgRound(ps.y)}" r="3"/>
         <circle class="sky-endpoint" cx="${svgRound(pe.x)}" cy="${svgRound(pe.y)}" r="3"/>
         <circle class="sky-elev-max" cx="${svgRound(pm.x)}" cy="${svgRound(pm.y)}" r="4.5"/>
@@ -210,11 +248,16 @@ export function renderForecast(
   container: HTMLElement,
   nights: NightForecast[],
   verdict: Verdict,
-  opts?: { stale?: boolean },
+  opts?: {
+    stale?: boolean;
+    /** S4: TRAINバンド(バンド2)に表示するパス。null/未指定ならバンド非表示 */
+    trainHighlight?: (VisiblePass & { train: TrainInfo }) | null;
+  },
 ): void {
   const stale = opts?.stale
     ? `<p class="stale-note">${FORECAST_STRINGS.staleNote}</p>`
     : "";
+  const trainBand = trainBandHtml(opts?.trainHighlight ?? null);
   const nightsHtml = nights
     .map((night, ni) => {
       const rows =
@@ -233,6 +276,7 @@ export function renderForecast(
   container.innerHTML = `
     ${stale}
     ${verdictHtml(verdict)}
+    ${trainBand}
     <div class="forecast-list">
       <div class="eyebrow">${FORECAST_STRINGS.forecastEyebrow}</div>
       ${nightsHtml}

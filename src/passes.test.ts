@@ -339,6 +339,36 @@ describe("selectTopPasses", () => {
     const p1 = mkPass();
     expect(selectTopPasses([p1])).toEqual([p1]);
   });
+
+  // S4 codex軽微指摘対応: 「補正が選抜より前に効く」ことをselectTopPasses単体で直接検証する。
+  // 3件の明るさ3(非トレイン)+1件の明るさ2→補正後3(トレイン想定)という構成で、
+  // 補正を選抜前に適用した場合にのみトレイン候補が上位3件へ入ることを確認する。
+  it("includes a boosted candidate only when the boost is applied before selection", () => {
+    const bright1 = mkPass({ brightness: 3, maxElevationDeg: 30 });
+    const bright2 = mkPass({ brightness: 3, maxElevationDeg: 40 });
+    const bright3 = mkPass({ brightness: 3, maxElevationDeg: 50 });
+    const trainCandidateUnboosted = mkPass({ brightness: 2, maxElevationDeg: 90 });
+    const trainCandidateBoosted = { ...trainCandidateUnboosted, brightness: 3 as Brightness };
+
+    // 誤実装(選抜後に補正)を模擬: 補正前の明るさで選抜すると、候補は仰角トップでも
+    // 明るさ2扱いのため明るさ3の3件に負けて落選する
+    const selectedBeforeBoost = selectTopPasses([
+      bright1,
+      bright2,
+      bright3,
+      trainCandidateUnboosted,
+    ]);
+    expect(selectedBeforeBoost).not.toContain(trainCandidateUnboosted);
+
+    // 正しい実装(選抜前に補正、S4の修正内容): 明るさ3同士なら仰角で並び、候補が入る
+    const selectedAfterBoost = selectTopPasses([
+      bright1,
+      bright2,
+      bright3,
+      trainCandidateBoosted,
+    ]);
+    expect(selectedAfterBoost).toContain(trainCandidateBoosted);
+  });
 });
 
 describe("deriveVerdict", () => {
@@ -427,8 +457,8 @@ describe("forecast cache", () => {
   });
 
   // S3 codex重大対応: 端点仰角の追加はスキーマ変更なので版上げし、旧形式を拾わない
-  it("uses a v3 storage key and rejects passes without endpoint elevations", () => {
-    expect(FORECAST_STORAGE_KEY).toBe("starlink-watcher:forecast:v3");
+  it("uses a v4 storage key and rejects passes without endpoint elevations", () => {
+    expect(FORECAST_STORAGE_KEY).toBe("starlink-watcher:forecast:v4");
     const nights = [mkNight(Date.UTC(2026, 7, 10, 10, 30), Date.UTC(2026, 7, 10, 19, 30), [mkPass()])];
     const key = forecastCacheKey(TOKYO, 42);
     saveForecastCache(key, nights);
@@ -438,6 +468,53 @@ describe("forecast cache", () => {
     delete raw.nights[0].passes[0].endElDeg;
     localStorage.setItem(FORECAST_STORAGE_KEY, JSON.stringify(raw));
     expect(loadForecastCache(key)).toBeNull();
+  });
+
+  // S4: train フィールドはキャッシュ往復で失われてはいけない(revivePass が拾い忘れると壊れる)
+  it("round-trips the train field on cached passes", () => {
+    const nights = [
+      mkNight(Date.UTC(2026, 7, 10, 10, 30), Date.UTC(2026, 7, 10, 19, 30), [
+        mkPass({ train: { groupId: "2025-142", daysSinceDetected: 3 } }),
+      ]),
+    ];
+    const key = forecastCacheKey(TOKYO, 99);
+    saveForecastCache(key, nights);
+    const loaded = loadForecastCache(key);
+    expect(loaded).not.toBeNull();
+    expect(loaded![0].passes[0].train).toEqual({ groupId: "2025-142", daysSinceDetected: 3 });
+  });
+
+  it("round-trips a pass with no train field as undefined", () => {
+    const nights = [mkNight(Date.UTC(2026, 7, 10, 10, 30), Date.UTC(2026, 7, 10, 19, 30), [mkPass()])];
+    const key = forecastCacheKey(TOKYO, 100);
+    saveForecastCache(key, nights);
+    const loaded = loadForecastCache(key);
+    expect(loaded![0].passes[0].train).toBeUndefined();
+  });
+
+  // codex軽微指摘対応: train の数値検証を型の意味(0以上の整数・COSPAR形式)まで狭める
+  it("rejects cached data with a malformed train field", () => {
+    const key = forecastCacheKey(TOKYO, 101);
+    const badTrains = [
+      { groupId: "not-cospar", daysSinceDetected: 3 },
+      { groupId: "2025-142", daysSinceDetected: -1 },
+      { groupId: "2025-142", daysSinceDetected: 1.5 },
+      { groupId: "", daysSinceDetected: null },
+    ];
+    for (const train of badTrains) {
+      const nights = [
+        mkNight(Date.UTC(2026, 7, 10, 10, 30), Date.UTC(2026, 7, 10, 19, 30), [
+          mkPass({ train: train as VisiblePass["train"] }),
+        ]),
+      ];
+      saveForecastCache(key, nights);
+      // 保存済みJSONのtrainだけを不正値へ書き換える(saveForecastCache自体はvalidな値しか
+      // 受け付けないため、キャッシュ破損を模擬するにはストレージへ直接書き戻す必要がある)
+      const raw = JSON.parse(localStorage.getItem(FORECAST_STORAGE_KEY)!);
+      raw.nights[0].passes[0].train = train;
+      localStorage.setItem(FORECAST_STORAGE_KEY, JSON.stringify(raw));
+      expect(loadForecastCache(key)).toBeNull();
+    }
   });
 });
 
@@ -465,6 +542,29 @@ describe("computeForecast", () => {
     expect(lastDone).toBe(lastTotal);
     for (let i = 1; i < progress.length; i++) {
       expect(progress[i][0]).toBeGreaterThanOrEqual(progress[i - 1][0]);
+    }
+  });
+
+  // S4 codex重大指摘対応: trainInfoByObjectId は selectTopPasses(上位3件選抜)より前に
+  // 適用される必要がある。ここでは実際の SGP4/選抜パイプラインを通しても train フィールドと
+  // 明るさ補正が最終出力(選抜後)に残ることを確認する(補正が選抜後に落ちていないことの証跡)。
+  it("applies train info before top-N selection so it survives in the final output", async () => {
+    const now = new Date("2026-08-10T03:00:00Z");
+    const trainInfoByObjectId = new Map([
+      [SYNTH_GP.OBJECT_ID, { groupId: "2026-001", daysSinceDetected: 2 }],
+    ]);
+    const [withTrain, withoutTrain] = await Promise.all([
+      computeForecast([SYNTH_GP], TOKYO, now, undefined, trainInfoByObjectId),
+      computeForecast([SYNTH_GP], TOKYO, now),
+    ]);
+    const trainPasses = withTrain.flatMap((n) => n.passes);
+    const plainPasses = withoutTrain.flatMap((n) => n.passes);
+    expect(trainPasses.length).toBeGreaterThan(0);
+    expect(trainPasses.length).toBe(plainPasses.length);
+    for (let i = 0; i < trainPasses.length; i++) {
+      expect(trainPasses[i].train).toEqual({ groupId: "2026-001", daysSinceDetected: 2 });
+      expect(trainPasses[i].brightness).toBeGreaterThanOrEqual(plainPasses[i].brightness);
+      expect(trainPasses[i].brightness).toBeLessThanOrEqual(3);
     }
   });
 });

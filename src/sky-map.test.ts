@@ -9,6 +9,8 @@ import {
   azElToPoint,
   elevationRingRadius,
   passArcPath,
+  passArcPoint,
+  trainDotPoints,
 } from "./sky-map.ts";
 
 describe("elevationRingRadius", () => {
@@ -126,5 +128,60 @@ describe("passArcPath", () => {
     expect(a.x0).toBeGreaterThan(SKY_CX); // SW start on the right
     expect(a.x1).toBeLessThan(SKY_CX); // SE end on the left
     expect(a.y0).toBeGreaterThan(SKY_CY); // both below center (southern sky)
+  });
+});
+
+describe("passArcPoint (S4: train dot placement)", () => {
+  const start = { azDeg: 225, elDeg: 0 };
+  const max = { azDeg: 180, elDeg: 42 };
+  const end = { azDeg: 135, elDeg: 0 };
+
+  it("matches the start/end points at t=0 and t=1", () => {
+    const p0 = azElToPoint(start.azDeg, start.elDeg);
+    const p1 = azElToPoint(end.azDeg, end.elDeg);
+    const atStart = passArcPoint(0, start, max, end);
+    const atEnd = passArcPoint(1, start, max, end);
+    expect(atStart.x).toBeCloseTo(p0.x, 5);
+    expect(atStart.y).toBeCloseTo(p0.y, 5);
+    expect(atEnd.x).toBeCloseTo(p1.x, 5);
+    expect(atEnd.y).toBeCloseTo(p1.y, 5);
+  });
+
+  it("matches the max-elevation point at t=0.5 (consistent with passArcPath)", () => {
+    const pm = azElToPoint(max.azDeg, max.elDeg);
+    const atMid = passArcPoint(0.5, start, max, end);
+    expect(atMid.x).toBeCloseTo(pm.x, 1);
+    expect(atMid.y).toBeCloseTo(pm.y, 1);
+  });
+});
+
+describe("trainDotPoints (S4: equally-spaced dot chain)", () => {
+  const start = { azDeg: 225, elDeg: 0 };
+  const max = { azDeg: 180, elDeg: 42 };
+  const end = { azDeg: 135, elDeg: 0 };
+
+  it("returns an empty array for count 0", () => {
+    expect(trainDotPoints(start, max, end, 0)).toEqual([]);
+  });
+
+  it("returns the max-elevation point for count 1", () => {
+    const pts = trainDotPoints(start, max, end, 1);
+    const pm = azElToPoint(max.azDeg, max.elDeg);
+    expect(pts).toHaveLength(1);
+    expect(pts[0].x).toBeCloseTo(pm.x, 1);
+    expect(pts[0].y).toBeCloseTo(pm.y, 1);
+  });
+
+  it("includes both endpoints and is evenly spaced in t for count >= 2", () => {
+    const pts = trainDotPoints(start, max, end, 5);
+    expect(pts).toHaveLength(5);
+    const p0 = azElToPoint(start.azDeg, start.elDeg);
+    const p1 = azElToPoint(end.azDeg, end.elDeg);
+    expect(pts[0].x).toBeCloseTo(p0.x, 5);
+    expect(pts[0].y).toBeCloseTo(p0.y, 5);
+    expect(pts[4].x).toBeCloseTo(p1.x, 5);
+    expect(pts[4].y).toBeCloseTo(p1.y, 5);
+    // t=0.5 (index 2 of 5) を通過することも確認
+    expect(pts[2].x).toBeCloseTo(passArcPoint(0.5, start, max, end).x, 5);
   });
 });

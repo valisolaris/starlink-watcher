@@ -281,6 +281,21 @@ html.dim body { filter: brightness(0.55); }
 }
 .verdict-next .verdict-time { font-size: 16px; }
 
+/* ---------- TRAINバンド(S4): design-brief §1 バンド2 ---------- */
+.train-band {
+  border-top: 1px solid var(--hairline);
+  padding-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.train-copy {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink-2); /* verdict-sub 等の補足テキストと同じ強度に揃える(UI監査Q11/12) */
+}
+
 /* リスト: hairline 罫線区切りの密度高め(計器盤の趣) */
 .night-group { border-top: 1px solid var(--hairline); padding: 10px 0 4px; }
 .night-date {
@@ -353,6 +368,7 @@ html.dim body { filter: brightness(0.55); }
 }
 .sky-endpoint { fill: rgba(255, 255, 255, 0.5); }
 .sky-elev-max { fill: var(--accent); } /* accent 用途(3/3): 方位図の最大仰角マーカー */
+.sky-train-dot { fill: rgba(255, 255, 255, 0.75); } /* S4: トレインの「真珠の連なり」 */
 .skychart-caption {
   margin: 0;
   font-size: 12px;

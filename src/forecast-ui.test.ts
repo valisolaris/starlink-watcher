@@ -13,6 +13,7 @@ import {
   renderForecast,
   renderForecastError,
   renderForecastLoading,
+  trainBandHtml,
 } from "./forecast-ui.ts";
 
 let passSeq = 0;
@@ -162,6 +163,54 @@ describe("renderForecast", () => {
   it("shows the stale-data note when requested", () => {
     renderForecast(container, [mkNight(day0, [])], { kind: "none" }, { stale: true });
     expect(container.textContent).toContain(FORECAST_STRINGS.staleNote);
+  });
+});
+
+// S4: トレインが存在する期間のみバンド2として出現(design-brief §1)
+describe("TRAIN band (S4)", () => {
+  const day0 = Date.UTC(2026, 7, 10);
+
+  it("renders trainBandHtml with the days-since-detected copy", () => {
+    const pass = mkPass({ train: { groupId: "2025-142", daysSinceDetected: 3 } });
+    const html = trainBandHtml(pass as VisiblePass & { train: NonNullable<VisiblePass["train"]> });
+    expect(html).toContain(FORECAST_STRINGS.trainEyebrow);
+    expect(html).toContain("3日目");
+  });
+
+  it("renders trainBandHtml with the new-detection copy when days is null", () => {
+    const pass = mkPass({ train: { groupId: "2025-142", daysSinceDetected: null } });
+    const html = trainBandHtml(pass as VisiblePass & { train: NonNullable<VisiblePass["train"]> });
+    expect(html).toContain(FORECAST_STRINGS.trainNewCopy);
+  });
+
+  it("returns an empty string for no highlight", () => {
+    expect(trainBandHtml(null)).toBe("");
+  });
+
+  it("shows the TRAIN band in renderForecast when a trainHighlight is passed", () => {
+    const trainPass = mkPass({
+      train: { groupId: "2025-142", daysSinceDetected: 3 },
+      maxTime: new Date(Date.UTC(2026, 7, 10, 21, 0, 0)),
+    });
+    const nights = [mkNight(day0, [trainPass])];
+    renderForecast(container, nights, { kind: "none" }, {
+      trainHighlight: trainPass as VisiblePass & { train: NonNullable<VisiblePass["train"]> },
+    });
+    expect(container.textContent).toContain(FORECAST_STRINGS.trainEyebrow);
+  });
+
+  // UI自己監査(uiux-checklist Q4)指摘: 方位図のドット列はスクリーンリーダーに伝わらないため
+  // aria-label にもトレインである旨を含める
+  it("mentions the train in the sky chart aria-label for screen readers", () => {
+    const trainPass = mkPass({ train: { groupId: "2025-142", daysSinceDetected: 3 } });
+    renderForecast(container, [mkNight(day0, [trainPass])], { kind: "none" });
+    const svg = container.querySelector(".skychart svg");
+    expect(svg?.getAttribute("aria-label")).toContain("トレイン");
+  });
+
+  it("does not show the TRAIN band when trainHighlight is absent", () => {
+    renderForecast(container, [mkNight(day0, [mkPass()])], { kind: "none" });
+    expect(container.textContent).not.toContain(FORECAST_STRINGS.trainEyebrow);
   });
 });
 

@@ -40,13 +40,56 @@ export function svgRound(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-/** 開始→最大仰角→終了の3点を通る2次ベジェの path d 文字列(t=0.5 で最大点を通過) */
-export function passArcPath(start: AzEl, max: AzEl, end: AzEl): string {
+interface BezierControlPoints {
+  p0: SkyPoint;
+  q: SkyPoint;
+  p1: SkyPoint;
+}
+
+/** 開始・最大仰角・終了の3点から2次ベジェの制御点を作る(passArcPath/passArcPoint 共用) */
+function bezierControlPoints(start: AzEl, max: AzEl, end: AzEl): BezierControlPoints {
   const p0 = azElToPoint(start.azDeg, start.elDeg);
   const pm = azElToPoint(max.azDeg, max.elDeg);
   const p1 = azElToPoint(end.azDeg, end.elDeg);
   // B(0.5) = pm となる制御点: Q = 2M − (P0+P1)/2(review.html と同じ構成)
   const qx = 2 * pm.x - (p0.x + p1.x) / 2;
   const qy = 2 * pm.y - (p0.y + p1.y) / 2;
-  return `M ${svgRound(p0.x)} ${svgRound(p0.y)} Q ${svgRound(qx)} ${svgRound(qy)} ${svgRound(p1.x)} ${svgRound(p1.y)}`;
+  return { p0, q: { x: qx, y: qy }, p1 };
+}
+
+/** 開始→最大仰角→終了の3点を通る2次ベジェの path d 文字列(t=0.5 で最大点を通過) */
+export function passArcPath(start: AzEl, max: AzEl, end: AzEl): string {
+  const { p0, q, p1 } = bezierControlPoints(start, max, end);
+  return `M ${svgRound(p0.x)} ${svgRound(p0.y)} Q ${svgRound(q.x)} ${svgRound(q.y)} ${svgRound(p1.x)} ${svgRound(p1.y)}`;
+}
+
+/** ベジェ曲線上の位置(t: 0=開始, 0.5=最大仰角, 1=終了)。passArcPath と同じ制御点構成 */
+export function passArcPoint(t: number, start: AzEl, max: AzEl, end: AzEl): SkyPoint {
+  const { p0, q, p1 } = bezierControlPoints(start, max, end);
+  const mt = 1 - t;
+  return {
+    x: mt * mt * p0.x + 2 * mt * t * q.x + t * t * p1.x,
+    y: mt * mt * p0.y + 2 * mt * t * q.y + t * t * p1.y,
+  };
+}
+
+/**
+ * 弧上のドット列(S4: トレイン表示、design-brief「弧上の等間隔ドット列」の様式的表現)。
+ * count>=2 は両端(t=0,1)を含め、ベジェのパラメータ t を等分する(画面上の弧長ではない。
+ * 二次ベジェでは t の等分と弧長の等分は一般に一致しないが、装飾目的のため許容する。
+ * codex軽微指摘対応)。count===1 は最大仰角点(t=0.5)のみ。
+ */
+export function trainDotPoints(
+  start: AzEl,
+  max: AzEl,
+  end: AzEl,
+  count: number,
+): SkyPoint[] {
+  if (count <= 0) return [];
+  if (count === 1) return [passArcPoint(0.5, start, max, end)];
+  const points: SkyPoint[] = [];
+  for (let i = 0; i < count; i++) {
+    points.push(passArcPoint(i / (count - 1), start, max, end));
+  }
+  return points;
 }

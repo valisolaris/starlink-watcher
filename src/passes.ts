@@ -33,6 +33,13 @@ export interface TimeWindow {
   end: Date;
 }
 
+/** S4: トレイン検出結果(train.ts の detectTrains/trackFirstSeen が算出)。VisiblePass に付与する */
+export interface TrainInfo {
+  groupId: string;
+  /** 初回検出日からの経過日数(推定)。今回のロードで初めて検出した群は null */
+  daysSinceDetected: number | null;
+}
+
 export interface VisiblePass {
   satName: string;
   objectId: string;
@@ -50,6 +57,8 @@ export interface VisiblePass {
   rangeAtMaxKm: number;
   magnitude: number;
   brightness: Brightness;
+  /** S4: トレイン由来のパスにのみ付与(train.ts の applyTrainInfo が設定) */
+  train?: TrainInfo;
 }
 
 export interface NightForecast {
@@ -80,7 +89,8 @@ export const VERDICT_MIN_BRIGHTNESS: Brightness = 2;
 
 // v2: 明るさ較正(MAG_TWO_DOTS_MAX 4.8→4.5)で保存データの意味が変わったため版上げ
 // v3: 可視区間端点の仰角(startElDeg/endElDeg)を追加(S3 codex重大対応)したため版上げ
-export const FORECAST_STORAGE_KEY = "starlink-watcher:forecast:v3";
+// v4: トレイン情報(train フィールド)を追加(S4)したため版上げ
+export const FORECAST_STORAGE_KEY = "starlink-watcher:forecast:v4";
 
 /** 太陽高度が threshold を跨ぐ時刻を二分法で約15秒精度まで詰める */
 function refineSunCrossing(
@@ -460,12 +470,24 @@ function yieldToEventLoop(): Promise<void> {
   });
 }
 
-/** 全衛星×5夜のパス探索。チャンクごとに yield し onProgress で進捗を通知する */
+/** brightness を1段階上げる(上限3)。S4: トレインの明るさ補正 */
+function boostBrightness(b: Brightness): Brightness {
+  return b >= 3 ? 3 : ((b + 1) as Brightness);
+}
+
+/**
+ * 全衛星×5夜のパス探索。チャンクごとに yield し onProgress で進捗を通知する。
+ * trainInfoByObjectId(S4)を渡すと、該当衛星のパスへ train フィールドを付与し明るさを
+ * 1段階上げる。この補正は selectTopPasses(上位3件選抜)より前に適用する必要がある
+ * (選抜後に補正すると、補正前の明るさで落選したトレインが結果から欠落するため。
+ * codex重大指摘対応)。
+ */
 export async function computeForecast(
   records: GpRecord[],
   obs: Observer,
   now: Date,
   onProgress?: (done: number, total: number) => void,
+  trainInfoByObjectId?: Map<string, TrainInfo>,
 ): Promise<NightForecast[]> {
   const windows = nightWindows(now, obs);
   const segmentsPerNight = windows.map((w) => darkScanSegments(w, obs));
@@ -501,13 +523,16 @@ export async function computeForecast(
             }));
             for (const gp of splitVisibleRuns(samples, MIN_PASS_ELEVATION_DEG)) {
               const magnitude = estimateMagnitude(gp.rangeAtMaxKm);
+              const train = trainInfoByObjectId?.get(rec.OBJECT_ID);
+              const baseBrightness = brightnessBucket(magnitude);
               perNight[wi].push({
                 ...gp,
                 satName: rec.OBJECT_NAME,
                 objectId: rec.OBJECT_ID,
                 noradId: rec.NORAD_CAT_ID,
                 magnitude,
-                brightness: brightnessBucket(magnitude),
+                brightness: train ? boostBrightness(baseBrightness) : baseBrightness,
+                ...(train ? { train } : {}),
               });
             }
           }
@@ -544,6 +569,23 @@ function reviveDate(v: unknown): Date | null {
   return Number.isFinite(ms) ? new Date(ms) : null;
 }
 
+/** groupId は launchGroupId(train.ts)が返す "YYYY-NNN" 形式そのもの */
+const GROUP_ID_RE = /^\d{4}-\d{3}$/;
+
+/** train フィールドの復元。無ければ undefined(トレインでないパス)、壊れていれば「不正」を示す symbol */
+const TRAIN_INVALID = Symbol("train-invalid");
+function reviveTrain(v: unknown): TrainInfo | undefined | typeof TRAIN_INVALID {
+  if (v === undefined) return undefined;
+  if (typeof v !== "object" || v === null) return TRAIN_INVALID;
+  const t = v as Record<string, unknown>;
+  if (typeof t.groupId !== "string" || !GROUP_ID_RE.test(t.groupId)) return TRAIN_INVALID;
+  const days = t.daysSinceDetected;
+  if (days !== null && !(typeof days === "number" && Number.isInteger(days) && days >= 0)) {
+    return TRAIN_INVALID;
+  }
+  return { groupId: t.groupId, daysSinceDetected: days };
+}
+
 function revivePass(raw: unknown): VisiblePass | null {
   if (typeof raw !== "object" || raw === null) return null;
   const v = raw as Record<string, unknown>;
@@ -565,6 +607,8 @@ function revivePass(raw: unknown): VisiblePass | null {
   ];
   if (!nums.every((n) => typeof n === "number" && Number.isFinite(n))) return null;
   if (v.brightness !== 1 && v.brightness !== 2 && v.brightness !== 3) return null;
+  const train = reviveTrain(v.train);
+  if (train === TRAIN_INVALID) return null;
   return {
     satName: v.satName,
     objectId: v.objectId,
@@ -581,6 +625,7 @@ function revivePass(raw: unknown): VisiblePass | null {
     rangeAtMaxKm: v.rangeAtMaxKm as number,
     magnitude: v.magnitude as number,
     brightness: v.brightness,
+    ...(train !== undefined ? { train } : {}),
   };
 }
 

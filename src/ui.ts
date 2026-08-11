@@ -24,6 +24,13 @@ import {
   renderForecastError,
   renderForecastLoading,
 } from "./forecast-ui.ts";
+import {
+  buildTrainInfoMap,
+  deriveTrainHighlight,
+  detectTrains,
+  refreshTrainDays,
+  trackFirstSeen,
+} from "./train.ts";
 
 export const UI_STRINGS = {
   appName: "STARLINK WATCH",
@@ -171,6 +178,15 @@ export function mount(root: HTMLElement): void {
       }
       if (!nights) {
         renderForecastLoading(forecastEl, "compute", 0);
+        // S4: 打ち上げ直後トレインを検出し、上位3件選抜(computeForecast内)より前に
+        // 明るさ補正・train付与が適用されるよう computeForecast へ渡す(codex重大指摘対応:
+        // 選抜後に適用すると、補正前の明るさで落選したトレインが結果から欠落するため)
+        const { trainObjectIds } = detectTrains(gp.snapshot.records);
+        const { daysById } = trackFirstSeen(
+          [...new Set(trainObjectIds.values())],
+          Date.now(),
+        );
+        const trainInfoByObjectId = buildTrainInfoMap(trainObjectIds, daysById);
         nights = await computeForecast(
           gp.snapshot.records,
           obs,
@@ -180,13 +196,21 @@ export function mount(root: HTMLElement): void {
               renderForecastLoading(forecastEl, "compute", (done / total) * 100);
             }
           },
+          trainInfoByObjectId,
         );
         if (seq !== forecastSeq) return;
         saveForecastCache(key, nights);
+      } else {
+        // S4 codex軽微指摘対応: キャッシュ復元時も「打ち上げからN日目」を現在時刻基準に更新する
+        // (明るさ・train有無の再計算はしない。二重補正を避けるため)
+        nights = refreshTrainDays(nights, Date.now());
       }
-      const verdict = deriveVerdict(nights, new Date());
+      const now = new Date();
+      const verdict = deriveVerdict(nights, now);
+      const trainHighlight = deriveTrainHighlight(nights, now);
       renderForecast(forecastEl, nights, verdict, {
         stale: gp.source === "stale-cache",
+        trainHighlight,
       });
     } catch {
       if (seq !== forecastSeq) return;
