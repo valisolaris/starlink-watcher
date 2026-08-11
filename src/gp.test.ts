@@ -333,6 +333,23 @@ describe("loadBundledSnapshot (S5)", () => {
     expect(result).toEqual({ fetchedAt: 42, records: [SYNTH_GP] });
   });
 
+  // 実機検証(2026-08-11)で判明: Vite dev server は .gz ファイルを Content-Encoding: gzip
+  // ヘッダー付きで配信し、ブラウザのfetchが透過的に展開する。この場合 .json.gz の
+  // レスポンスボディは既に平文JSONであり、DecompressionStreamでの手動展開を試みると
+  // 二重展開でエラーになる。素直にJSONとして読める場合はそちらを優先する必要がある。
+  it("reads the gzip variant directly when the transport already decompressed it", async () => {
+    const fetchFn = vi.fn(async (url: unknown) => {
+      if (String(url) === GP_SNAPSHOT_URL) {
+        return { ok: false, status: 404, json: async () => ({}) };
+      }
+      expect(url).toBe(GP_SNAPSHOT_GZ_URL);
+      // Content-Encoding: gzip 経由で既に展開済みのレスポンスを模擬(生の平文JSON)
+      return { ok: true, json: async () => ({ fetchedAt: 42, records: [SYNTH_GP] }) };
+    });
+    const result = await loadBundledSnapshot(fetchFn as unknown as typeof fetch);
+    expect(result).toEqual({ fetchedAt: 42, records: [SYNTH_GP] });
+  });
+
   it("returns null when both the plain and gzip variants are missing", async () => {
     const fetchFn = vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) }));
     const result = await loadBundledSnapshot(fetchFn as unknown as typeof fetch);

@@ -169,25 +169,49 @@ export function parseGpSnapshotJson(raw: unknown): GpSnapshot | null {
   return { fetchedAt: v.fetchedAt, records };
 }
 
-/**
- * url を取得して JSON を返す。".gz" で終わる URL は DecompressionStream で展開してから
- * パースする(build-snapshot.ts が1MB超で gzip 出力するため)。fetch失敗・HTTPエラー・
- * 展開不可(DecompressionStream 非対応環境)・パース失敗はすべて null。
- */
-async function fetchJsonMaybeGz(url: string, fetchFn: typeof fetch): Promise<unknown | null> {
-  let res: Awaited<ReturnType<typeof fetch>>;
+async function safeFetch(
+  url: string,
+  fetchFn: typeof fetch,
+): Promise<Awaited<ReturnType<typeof fetch>> | null> {
   try {
-    res = await fetchFn(url);
+    const res = await fetchFn(url);
+    return res.ok ? res : null;
   } catch {
     return null;
   }
-  if (!res.ok) return null;
+}
+
+async function safeJson(res: Awaited<ReturnType<typeof fetch>>): Promise<unknown | null> {
   try {
-    if (!url.endsWith(".gz")) return await res.json();
-    if (typeof DecompressionStream === "undefined" || !res.body) {
-      throw new Error("gzip decompression unavailable");
-    }
-    const stream = res.body.pipeThrough(new DecompressionStream("gzip"));
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * url を取得して JSON を返す。".gz" で終わる URL はまず素直に JSON として読めるか試す
+ * (サーバー/CDNが Content-Encoding: gzip で既に透過展開済みの場合、実測: Vite dev server は
+ * この方式で配信する)。それで読めなければ生の gzip バイト列とみなし、URL を再取得して
+ * DecompressionStream で手動展開する(Response の body は一度読むと再利用できないため、
+ * フォールバック時は再フェッチが必要)。fetch失敗・HTTPエラー・展開不可
+ * (DecompressionStream 非対応環境)・パース失敗はすべて null。
+ */
+async function fetchJsonMaybeGz(url: string, fetchFn: typeof fetch): Promise<unknown | null> {
+  const first = await safeFetch(url, fetchFn);
+  if (first === null) return null;
+  if (!url.endsWith(".gz")) return safeJson(first);
+
+  const asJson = await safeJson(first);
+  if (asJson !== null) return asJson;
+
+  // 生の gzip バイト列だった可能性が高いので、body 読み取り用に再取得して手動展開する
+  const second = await safeFetch(url, fetchFn);
+  if (second === null || typeof DecompressionStream === "undefined" || !second.body) {
+    return null;
+  }
+  try {
+    const stream = second.body.pipeThrough(new DecompressionStream("gzip"));
     return JSON.parse(await new Response(stream).text());
   } catch {
     return null;
