@@ -490,11 +490,14 @@ html.dim body { filter: brightness(0.55); }
   height: auto;
   display: block;
 }
-.compass-target-marker { fill: var(--ink); }
-/* 未整合は輪郭のみ(ink-2)、整合したら塗りつぶし(ink)で「重なった」ことを示す。
+/* 目標(衛星)=レティクル(照準)、端末(現在の向き)=丸、で形状語彙を分ける(視認性改善)。 */
+.compass-target-dot { fill: var(--ink); }
+.compass-target-ticks { fill: none; stroke: var(--ink); stroke-width: 1.5; }
+/* 未整合は破線・低コントラスト(ink-3)で背景へ後退させ、整合したら実線・ink化する。
+   fill:noneを維持するため整合時も目標のレティクルが隠れない(旧実装は塗りつぶして目標を覆っていた)。
    新しい色は使わずモノクロ内の強調で表現する(decisions.md D-009のaccent3箇所限定を尊重)。 */
-.compass-device-marker { fill: none; stroke: var(--ink-2); stroke-width: 2; }
-.compass-device-marker.is-aligned { fill: var(--ink); stroke: var(--ink); }
+.compass-device-marker { fill: none; stroke: var(--ink-3); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.compass-device-marker.is-aligned { stroke: var(--ink); stroke-width: 2; stroke-dasharray: none; }
 .compass-readout { text-align: center; }
 .compass-delta {
   margin: 0;

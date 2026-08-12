@@ -53,7 +53,11 @@ describe("renderCompass", () => {
       vi.fn(),
     );
     expect(root.querySelector("svg")).not.toBeNull();
-    expect(root.querySelector("[data-target-marker]")).not.toBeNull();
+    const marker = root.querySelector("[data-target-marker]");
+    expect(marker).not.toBeNull();
+    // レティクル(照準)状であること: 端末マーカー(丸のみ)と形状語彙を分けて区別する
+    expect(marker?.querySelector(".compass-target-dot")).not.toBeNull();
+    expect(marker?.querySelector(".compass-target-ticks")).not.toBeNull();
     expect(root.querySelector("[data-device-marker]")).not.toBeNull();
   });
 
@@ -66,6 +70,8 @@ describe("renderCompass", () => {
     );
     expect(root.querySelector("[data-aligned]")).not.toBeNull();
     expect(root.textContent).toContain(COMPASS_UI_STRINGS.alignedCopy);
+    // is-alignedクラスがリングの塗り/破線→実線というCSS状態を駆動する
+    expect(root.querySelector("[data-device-marker]")?.classList.contains("is-aligned")).toBe(true);
   });
 
   it("does not mark as aligned when the device is far from the target", () => {
@@ -76,6 +82,7 @@ describe("renderCompass", () => {
       vi.fn(),
     );
     expect(root.querySelector("[data-aligned]")).toBeNull();
+    expect(root.querySelector("[data-device-marker]")?.classList.contains("is-aligned")).toBe(false);
   });
 
   it("labels a live target differently from a static target", () => {

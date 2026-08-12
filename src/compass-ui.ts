@@ -1,5 +1,6 @@
 // コンパス画面の描画層(新画面): 方位図(sky-map.ts を流用)に目標(衛星)と端末の向きを重ねる。
-// 整合(狙えている)状態の強調は新しい色を使わず、モノクロ内(枠→塗りつぶし)で表現する
+// 目標=レティクル(照準)、端末=丸、で形状語彙を分ける。整合(狙えている)状態の強調は新しい色を
+// 使わず、モノクロ内(破線・低コントラスト→実線・強調色)で表現する
 // (decisions.md D-009: --accent の用途は verdict時刻・可視バッジ・方位図最大仰角の3箇所に限定済み。
 // この新画面ではそれを増やさない)。
 import { azimuthToCompass8 } from "./astro.ts";
@@ -55,18 +56,34 @@ function targetCaptionHtml(target: CompassTarget): string {
     </p>`;
 }
 
+// ティックはローカル座標(原点中心)で1回だけ組み立て、<g transform>で目標位置へ平行移動する
+// (targetMarkerHtml呼び出しごとの丸め計算を減らす。単純化レビュー2026-08-12)。
+// inner は端末マーカーの整合時ストローク帯(半径9、幅2 → 描画帯は半径8〜10)より外側に取り、
+// 整合時にティックがリングへ埋もれないようにする(単純化レビューで発見、実機/dev server目視確認済み)。
+const TARGET_RETICLE_TICKS = "M 0 -10 L 0 -15 M 0 10 L 0 15 M -10 0 L -15 0 M 10 0 L 15 0";
+
+/** 目標(衛星)マーカーをレティクル(照準)状に描く: 中心の塗り円+外側4方向の短いティック。
+ * 端末マーカー(丸のみ)と形状語彙を分けて区別しやすくする(視認性改善、実機フィードバック対応)。 */
+function targetMarkerHtml(x: number, y: number): string {
+  return `
+    <g data-target-marker class="compass-target-marker" transform="translate(${svgRound(x)} ${svgRound(y)})">
+      <circle class="compass-target-dot" cx="0" cy="0" r="5"/>
+      <path class="compass-target-ticks" d="${TARGET_RETICLE_TICKS}"/>
+    </g>`;
+}
+
 function dialHtml(target: CompassTarget, device: AimDevice | null, aligned: boolean): string {
   const tp = azElToPoint(target.azDeg, clampElForMarker(target.elDeg));
   const deviceMarker = device
     ? (() => {
         const dp = azElToPoint(device.headingDeg, clampElForMarker(device.elevationDeg));
-        return `<circle data-device-marker class="compass-device-marker${aligned ? " is-aligned" : ""}" cx="${svgRound(dp.x)}" cy="${svgRound(dp.y)}" r="7"/>`;
+        return `<circle data-device-marker class="compass-device-marker${aligned ? " is-aligned" : ""}" cx="${svgRound(dp.x)}" cy="${svgRound(dp.y)}" r="9"/>`;
       })()
     : "";
   return `
     <svg class="compass-svg" viewBox="0 0 200 200" role="img" aria-label="コンパス盤。北が上、東が左の見上げ図。">
       ${skyDialChromeSvg()}
-      <circle data-target-marker class="compass-target-marker" cx="${svgRound(tp.x)}" cy="${svgRound(tp.y)}" r="5"/>
+      ${targetMarkerHtml(tp.x, tp.y)}
       ${deviceMarker}
     </svg>`;
 }
