@@ -89,6 +89,7 @@
 |---|---|
 | ビルド | [Vite](https://vitejs.dev/) + [TypeScript](https://www.typescriptlang.org/) |
 | UI | フレームワークなし(vanilla DOM) |
+| 地名検索 | [国土地理院(GSI) 住所検索API](https://www.gsi.go.jp/) |
 | 軌道計算 | [satellite.js](https://github.com/shashwatak/satellite-js)(SGP4伝播) |
 | 太陽位置 | [suncalc](https://github.com/mourner/suncalc) |
 | テスト | [Vitest](https://vitest.dev/) |
@@ -162,6 +163,7 @@ npm run build:snapshot    # CelesTrakから軌道データスナップショッ�
 |---|---|
 | Build | [Vite](https://vitejs.dev/) + [TypeScript](https://www.typescriptlang.org/) |
 | UI | No framework (vanilla DOM) |
+| Place search | [GSI (Geospatial Information Authority of Japan) Address Search API](https://www.gsi.go.jp/) |
 | Orbital calculation | [satellite.js](https://github.com/shashwatak/satellite-js) (SGP4 propagation) |
 | Sun position | [suncalc](https://github.com/mourner/suncalc) |
 | Testing | [Vitest](https://vitest.dev/) |
@@ -235,6 +237,7 @@ GitHub Actions fetches orbital data daily from [CelesTrak](https://celestrak.org
 |---|---|
 | 构建 | [Vite](https://vitejs.dev/) + [TypeScript](https://www.typescriptlang.org/) |
 | UI | 无框架(vanilla DOM) |
+| 地名搜索 | [日本国土地理院(GSI)地址搜索 API](https://www.gsi.go.jp/) |
 | 轨道计算 | [satellite.js](https://github.com/shashwatak/satellite-js)(SGP4 传播) |
 | 太阳位置 | [suncalc](https://github.com/mourner/suncalc) |
 | 测试 | [Vitest](https://vitest.dev/) |
@@ -308,6 +311,7 @@ npm run build:snapshot    # 从 CelesTrak 生成轨道数据快照
 |---|---|
 | Build | [Vite](https://vitejs.dev/) + [TypeScript](https://www.typescriptlang.org/) |
 | UI | aucun framework (vanilla DOM) |
+| Recherche de lieu | [API de recherche d'adresses du GSI (Japon)](https://www.gsi.go.jp/) |
 | Calcul orbital | [satellite.js](https://github.com/shashwatak/satellite-js) (propagation SGP4) |
 | Position du Soleil | [suncalc](https://github.com/mourner/suncalc) |
 | Tests | [Vitest](https://vitest.dev/) |
@@ -381,6 +385,7 @@ Les données orbitales sont récupérées chaque jour depuis [CelesTrak](https:/
 |---|---|
 | Compilación | [Vite](https://vitejs.dev/) + [TypeScript](https://www.typescriptlang.org/) |
 | UI | Sin framework (vanilla DOM) |
+| Búsqueda de lugares | [API de búsqueda de direcciones del GSI (Japón)](https://www.gsi.go.jp/) |
 | Cálculo orbital | [satellite.js](https://github.com/shashwatak/satellite-js) (propagación SGP4) |
 | Posición del Sol | [suncalc](https://github.com/mourner/suncalc) |
 | Pruebas | [Vitest](https://vitest.dev/) |
@@ -454,6 +459,7 @@ Los datos orbitales los descarga GitHub Actions a diario desde [CelesTrak](https
 |---|---|
 | Сборка | [Vite](https://vitejs.dev/) + [TypeScript](https://www.typescriptlang.org/) |
 | UI | без фреймворков (vanilla DOM) |
+| Поиск по названию места | [API поиска адресов GSI (Япония)](https://www.gsi.go.jp/) |
 | Орбитальные расчёты | [satellite.js](https://github.com/shashwatak/satellite-js) (распространение SGP4) |
 | Положение Солнца | [suncalc](https://github.com/mourner/suncalc) |
 | Тесты | [Vitest](https://vitest.dev/) |
@@ -529,6 +535,7 @@ npm run build:snapshot    # создание снимка орбитальных
 |---|---|
 | البناء | [Vite](https://vitejs.dev/) + [TypeScript](https://www.typescriptlang.org/) |
 | واجهة المستخدم | بدون إطار عمل (vanilla DOM) |
+| البحث عن الأماكن | [واجهة برمجة تطبيقات البحث عن العناوين GSI (اليابان)](https://www.gsi.go.jp/) |
 | الحسابات المدارية | [satellite.js](https://github.com/shashwatak/satellite-js) (انتشار SGP4) |
 | موضع الشمس | [suncalc](https://github.com/mourner/suncalc) |
 | الاختبارات | [Vitest](https://vitest.dev/) |
