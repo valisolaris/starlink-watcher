@@ -524,22 +524,47 @@ function boostBrightness(b: Brightness): Brightness {
   return b >= 3 ? 3 : ((b + 1) as Brightness);
 }
 
+/** 夜窓とその暗時間セグメント。now 依存の計算結果をまとめて Worker へ配るための単位 */
+export interface NightScanPlan {
+  windows: TimeWindow[];
+  segmentsPerNight: TimeWindow[][];
+}
+
+/** 走査の進捗(done/total はいずれもそのシャード内の衛星数) */
+export interface ScanProgress {
+  done: number;
+  total: number;
+}
+
+/** shardPasses の入力。すべて構造化複製可能でなければならない(SatRec を含めてはいけない) */
+export interface ShardScanInput {
+  records: GpRecord[];
+  obs: Observer;
+  plan: NightScanPlan;
+  trainInfoByObjectId?: Map<string, TrainInfo>;
+}
+
 /**
- * 全衛星×5夜のパス探索。チャンクごとに yield し onProgress で進捗を通知する。
- * trainInfoByObjectId(S4)を渡すと、該当衛星のパスへ train フィールドを付与し明るさを
- * 1段階上げる。この補正は selectTopPasses(上位3件選抜)より前に適用する必要がある
- * (選抜後に補正すると、補正前の明るさで落選したトレインが結果から欠落するため。
- * codex重大指摘対応)。
+ * now 依存の夜窓・暗時間セグメントを1回だけ算出する。
+ * 各 Worker がこれを呼び直すと new Date() の差で窓境界がズレ結果が一致しなくなるため、
+ * 必ずメインスレッドで1回だけ実行し、結果を全 Worker へ配ること。
  */
-export async function computeForecast(
-  records: GpRecord[],
-  obs: Observer,
-  now: Date,
-  onProgress?: (done: number, total: number) => void,
-  trainInfoByObjectId?: Map<string, TrainInfo>,
-): Promise<NightForecast[]> {
+export function planNightScan(now: Date, obs: Observer): NightScanPlan {
   const windows = nightWindows(now, obs);
-  const segmentsPerNight = windows.map((w) => darkScanSegments(w, obs));
+  return { windows, segmentsPerNight: windows.map((w) => darkScanSegments(w, obs)) };
+}
+
+/**
+ * 1シャード分(records 全件)のパス探索。チャンクごとに進捗を yield し、
+ * 戻り値は「選抜前」の夜ごと VisiblePass 配列。
+ * 上位3件選抜(selectTopPasses)はここでは行わない — シャードごとに選抜すると
+ * 全体の上位3件と一致しなくなるため、集約後にメインスレッドで1回だけ適用する。
+ */
+export function* shardPasses(
+  input: ShardScanInput,
+): Generator<ScanProgress, VisiblePass[][], void> {
+  const { records, obs, plan, trainInfoByObjectId } = input;
+  const { windows, segmentsPerNight } = plan;
   // 時刻グリッドは衛星に依存しないため、夜×セグメントごとに1回だけ作り全衛星で共有する
   const gridsPerNight = segmentsPerNight.map((segs) =>
     segs.map((seg) => buildScanGrid(seg, COARSE_STEP_S * 1000)),
@@ -553,7 +578,7 @@ export async function computeForecast(
   const perNight: VisiblePass[][] = windows.map(() => []);
   const gd = obsToGd(obs);
   let done = 0;
-  onProgress?.(0, total);
+  yield { done: 0, total };
   for (let i = 0; i < sats.length; i += COMPUTE_CHUNK_SIZE) {
     const chunk = sats.slice(i, i + COMPUTE_CHUNK_SIZE);
     for (const { rec, satrec } of chunk) {
@@ -589,15 +614,58 @@ export async function computeForecast(
       }
       done += 1;
     }
-    onProgress?.(done, total);
-    // UI スレッドに制御を返す(メインスレッド実行のための刻み)
-    await yieldToEventLoop();
+    yield { done, total };
   }
+  return perNight;
+}
+
+/** 中断エラー。AbortSignal 由来の中断を、計算そのものの失敗と区別するために名前を揃える */
+export function forecastAbortError(): Error {
+  const err = new Error("aborted");
+  err.name = "AbortError";
+  return err;
+}
+
+/** 選抜前の夜ごとパス配列 → NightForecast[](上位3件選抜と日付付与) */
+export function assembleNights(
+  windows: TimeWindow[],
+  perNight: VisiblePass[][],
+): NightForecast[] {
   return windows.map((window, wi) => ({
     date: nightDate(window),
     window,
-    passes: selectTopPasses(perNight[wi]),
+    passes: selectTopPasses(perNight[wi] ?? []),
   }));
+}
+
+/**
+ * 全衛星×5夜のパス探索。チャンクごとに yield し onProgress で進捗を通知する。
+ * trainInfoByObjectId(S4)を渡すと、該当衛星のパスへ train フィールドを付与し明るさを
+ * 1段階上げる。この補正は selectTopPasses(上位3件選抜)より前に適用する必要がある
+ * (選抜後に補正すると、補正前の明るさで落選したトレインが結果から欠落するため。
+ * codex重大指摘対応)。
+ */
+export async function computeForecast(
+  records: GpRecord[],
+  obs: Observer,
+  now: Date,
+  onProgress?: (done: number, total: number) => void,
+  trainInfoByObjectId?: Map<string, TrainInfo>,
+  signal?: AbortSignal,
+): Promise<NightForecast[]> {
+  const plan = planNightScan(now, obs);
+  const scan = shardPasses({ records, obs, plan, trainInfoByObjectId });
+  let step = scan.next();
+  while (!step.done) {
+    // 中断はチャンク境界で見る。ここを見ないと、地点を変えても前回の計算が
+    // 最後まで走り続けてメインスレッドを占有する(実測で数十秒規模)
+    if (signal?.aborted) throw forecastAbortError();
+    onProgress?.(step.value.done, step.value.total);
+    // UI スレッドに制御を返す(メインスレッド実行のための刻み)
+    await yieldToEventLoop();
+    step = scan.next();
+  }
+  return assembleNights(plan.windows, step.value);
 }
 
 /** 予報キャッシュ(地点+データ取得時刻でキー化。再計算の回避のみが目的) */

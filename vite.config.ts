@@ -28,6 +28,12 @@ function stubSatelliteWasm(): Plugin {
 
 export default defineConfig({
   plugins: [stubSatelliteWasm()],
+  // 予報計算のワーカーも satellite.js を読むため、同じ WASM スタブを worker バンドルにも効かせる。
+  // Vite の worker.plugins は「呼ばれるたびに新しいインスタンスを返す関数」でなければならない。
+  worker: {
+    format: "es",
+    plugins: () => [stubSatelliteWasm()],
+  },
   test: {
     environment: "jsdom",
   },

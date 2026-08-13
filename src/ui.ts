@@ -14,7 +14,6 @@ import {
 import { getGpData, gpToSatrec, type GpRecord } from "./gp.ts";
 import type { SatRec } from "satellite.js";
 import {
-  computeForecast,
   deriveVerdict,
   forecastCacheKey,
   loadForecastCache,
@@ -22,6 +21,7 @@ import {
   saveForecastCache,
   type VisiblePass,
 } from "./passes.ts";
+import { computeForecastFast } from "./forecast-parallel.ts";
 import {
   renderForecast,
   renderForecastError,
@@ -296,9 +296,15 @@ export function mount(root: HTMLElement): void {
   // 予報フロー: 取得(2時間キャッシュ)→計算(チャンク+進捗)→描画。
   // 地点変更・再試行の競合は世代番号で最新だけを反映する(searchSeq と同じパターン)。
   let forecastSeq = 0;
+  // 世代番号は「古い結果を捨てる」だけで計算は走り続ける。Worker では走らせ続けると
+  // 新旧のワーカーが CPU を奪い合うため、置き換えるときに前回分を中断する。
+  let forecastAbort: AbortController | null = null;
 
   async function refreshForecast(loc: ObserverLocation): Promise<void> {
     const seq = ++forecastSeq;
+    forecastAbort?.abort();
+    const abort = new AbortController();
+    forecastAbort = abort;
     renderForecastLoading(forecastEl, "fetch");
     try {
       const gp = await getGpData();
@@ -313,16 +319,17 @@ export function mount(root: HTMLElement): void {
       }
       if (!nights) {
         renderForecastLoading(forecastEl, "compute", 0);
-        // S4: 打ち上げ直後トレインを検出し、上位3件選抜(computeForecast内)より前に
-        // 明るさ補正・train付与が適用されるよう computeForecast へ渡す(codex重大指摘対応:
-        // 選抜後に適用すると、補正前の明るさで落選したトレインが結果から欠落するため)
+        // S4: 打ち上げ直後トレインを検出し、上位3件選抜より前に明るさ補正・train付与が
+        // 適用されるよう computeForecastFast へ渡す(codex重大指摘対応: 選抜後に適用すると、
+        // 補正前の明るさで落選したトレインが結果から欠落するため)。補正は各シャードの
+        // shardPasses 内で、選抜は全シャード集約後にメインスレッドで1回だけ行われる
         const { trainObjectIds } = detectTrains(gp.snapshot.records);
         const { daysById } = trackFirstSeen(
           [...new Set(trainObjectIds.values())],
           Date.now(),
         );
         const trainInfoByObjectId = buildTrainInfoMap(trainObjectIds, daysById);
-        nights = await computeForecast(
+        nights = await computeForecastFast(
           gp.snapshot.records,
           obs,
           new Date(),
@@ -332,6 +339,7 @@ export function mount(root: HTMLElement): void {
             }
           },
           trainInfoByObjectId,
+          { signal: abort.signal },
         );
         if (seq !== forecastSeq) return;
         saveForecastCache(key, nights);
