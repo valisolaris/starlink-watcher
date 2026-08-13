@@ -86,12 +86,34 @@ type FakeMode = "ok" | "error" | "silent" | "messageerror";
  * 実際に shardPasses を回すので、SatRec のような複製不可の値が紛れ込めば
  * ここで例外になる(= 実 Worker と同じ制約を課している)。
  */
-class FakeWorker implements WorkerLike {
+/** 偽 Worker の共通基盤。リスナー管理・terminate だけを持ち、postMessage はサブクラスに委ねる */
+abstract class BaseFakeWorker implements WorkerLike {
   terminated = false;
-  postCount = 0;
   private listeners = new Map<string, Array<(ev: unknown) => void>>();
 
-  constructor(private mode: FakeMode = "ok") {}
+  abstract postMessage(message: unknown): void;
+
+  terminate(): void {
+    this.terminated = true;
+  }
+
+  addEventListener(type: string, listener: (ev: never) => void): void {
+    const list = this.listeners.get(type) ?? [];
+    list.push(listener as (ev: unknown) => void);
+    this.listeners.set(type, list);
+  }
+
+  protected emit(type: string, ev: unknown): void {
+    for (const l of this.listeners.get(type) ?? []) l(ev);
+  }
+}
+
+class FakeWorker extends BaseFakeWorker {
+  postCount = 0;
+
+  constructor(private mode: FakeMode = "ok") {
+    super();
+  }
 
   postMessage(message: unknown): void {
     this.postCount += 1;
@@ -134,20 +156,6 @@ class FakeWorker implements WorkerLike {
       this.emit("message", { data: done });
     });
   }
-
-  terminate(): void {
-    this.terminated = true;
-  }
-
-  addEventListener(type: string, listener: (ev: never) => void): void {
-    const list = this.listeners.get(type) ?? [];
-    list.push(listener as (ev: unknown) => void);
-    this.listeners.set(type, list);
-  }
-
-  private emit(type: string, ev: unknown): void {
-    for (const l of this.listeners.get(type) ?? []) l(ev);
-  }
 }
 
 /**
@@ -167,10 +175,7 @@ class DelayedFakeWorker extends FakeWorker {
 }
 
 /** 最初の1通だけ返してその後黙り込む偽 Worker(起動は成功するが完走しない) */
-class StallingFakeWorker implements WorkerLike {
-  terminated = false;
-  private listeners = new Map<string, Array<(ev: unknown) => void>>();
-
+class StallingFakeWorker extends BaseFakeWorker {
   postMessage(message: unknown): void {
     const req = structuredClone(message) as ShardRequest;
     queueMicrotask(() => {
@@ -181,27 +186,16 @@ class StallingFakeWorker implements WorkerLike {
         done: 0,
         total: req.records.length,
       };
-      for (const l of this.listeners.get("message") ?? []) l({ data: msg });
+      this.emit("message", { data: msg });
     });
-  }
-
-  terminate(): void {
-    this.terminated = true;
-  }
-
-  addEventListener(type: string, listener: (ev: never) => void): void {
-    const list = this.listeners.get(type) ?? [];
-    list.push(listener as (ev: unknown) => void);
-    this.listeners.set(type, list);
   }
 }
 
 /** 与えた ShardResponse をそのまま返す偽 Worker(error メッセージ経路の検証用) */
-class ScriptedFakeWorker implements WorkerLike {
-  terminated = false;
-  private listeners = new Map<string, Array<(ev: unknown) => void>>();
-
-  constructor(private readonly reply: (req: ShardRequest) => ShardResponse | "messageerror") {}
+class ScriptedFakeWorker extends BaseFakeWorker {
+  constructor(private readonly reply: (req: ShardRequest) => ShardResponse | "messageerror") {
+    super();
+  }
 
   postMessage(message: unknown): void {
     const req = structuredClone(message) as ShardRequest;
@@ -209,21 +203,11 @@ class ScriptedFakeWorker implements WorkerLike {
       if (this.terminated) return;
       const out = this.reply(req);
       if (out === "messageerror") {
-        for (const l of this.listeners.get("messageerror") ?? []) l({ type: "messageerror" });
+        this.emit("messageerror", { type: "messageerror" });
         return;
       }
-      for (const l of this.listeners.get("message") ?? []) l({ data: out });
+      this.emit("message", { data: out });
     });
-  }
-
-  terminate(): void {
-    this.terminated = true;
-  }
-
-  addEventListener(type: string, listener: (ev: never) => void): void {
-    const list = this.listeners.get(type) ?? [];
-    list.push(listener as (ev: unknown) => void);
-    this.listeners.set(type, list);
   }
 }
 

@@ -536,6 +536,9 @@ export interface ScanProgress {
   total: number;
 }
 
+/** 計算の進捗通知コールバック。computeForecast 系の全 API で共有する */
+export type ProgressCallback = (done: number, total: number) => void;
+
 /** shardPasses の入力。すべて構造化複製可能でなければならない(SatRec を含めてはいけない) */
 export interface ShardScanInput {
   records: GpRecord[];
@@ -649,7 +652,7 @@ export async function computeForecast(
   records: GpRecord[],
   obs: Observer,
   now: Date,
-  onProgress?: (done: number, total: number) => void,
+  onProgress?: ProgressCallback,
   trainInfoByObjectId?: Map<string, TrainInfo>,
   signal?: AbortSignal,
 ): Promise<NightForecast[]> {

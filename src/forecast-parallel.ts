@@ -10,6 +10,7 @@ import {
   planNightScan,
   type NightForecast,
   type NightScanPlan,
+  type ProgressCallback,
   type TrainInfo,
   type VisiblePass,
 } from "./passes.ts";
@@ -136,7 +137,7 @@ export interface ProgressTracker {
  */
 export function createProgressTracker(
   assignedCounts: number[],
-  onProgress?: (done: number, total: number) => void,
+  onProgress?: ProgressCallback,
 ): ProgressTracker {
   const doneByShard = assignedCounts.map(() => 0);
   const totalByShard = [...assignedCounts];
@@ -180,7 +181,7 @@ export async function computeForecastFast(
   records: GpRecord[],
   obs: Observer,
   now: Date,
-  onProgress?: (done: number, total: number) => void,
+  onProgress?: ProgressCallback,
   trainInfoByObjectId?: Map<string, TrainInfo>,
   opts?: ComputeForecastFastOptions,
 ): Promise<NightForecast[]> {
@@ -255,7 +256,7 @@ interface WorkerPoolInput {
   records: GpRecord[];
   obs: Observer;
   now: Date;
-  onProgress?: (done: number, total: number) => void;
+  onProgress?: ProgressCallback;
   trainInfoByObjectId?: Map<string, TrainInfo>;
   spawn: (index: number) => WorkerLike;
   workerCount: number;
